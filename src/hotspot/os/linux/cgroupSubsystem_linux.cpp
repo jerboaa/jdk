@@ -111,6 +111,24 @@ CgroupSubsystem* CgroupSubsystemFactory::create() {
   return new CgroupV1Subsystem(cpuset, cpu, cpuacct, memory);
 }
 
+// If (*mountpath == NULL) extract the path component from the mount point
+// 'tmpmount' and assign it to '*mountpath'.
+// E.g.: "/sys/fs/cgroup/memory" -> "/sys/fs/cgroup".
+// If (*mountpath != NULL) check that it's the same path like 'tmpmount'.
+// It's the callers responsibility to free the memory allocated for '*mount_path'.
+static void check_mount_path(char **mount_path, const char *tmpmount) {
+  if (*mount_path == NULL) {
+    *mount_path = os::strdup(tmpmount);
+    char* last_slash = strrchr(*mount_path, '/');
+    if (last_slash != NULL) {
+      *last_slash = '\0'; // truncate controller
+    }
+  }
+  else {
+    assert(strstr(tmpmount, *mount_path) == tmpmount, "Controllers mounted to different roots");
+  }
+}
+
 bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
                                             const char* proc_cgroups,
                                             const char* proc_self_cgroup,
@@ -254,6 +272,7 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
 
   bool cgroupv2_mount_point_found = false;
   bool any_cgroup_mounts_found = false;
+  char *mount_path = NULL;
   while ((p = fgets(buf, MAXPATHLEN, mntinfo)) != NULL) {
     char tmp_mount_point[MAXPATHLEN+1];
     char tmp_fs_type[MAXPATHLEN+1];
@@ -294,25 +313,37 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
         // Skip cgroup2 fs lines on hybrid or unified hierarchy.
         continue;
       }
+          if (strstr(tmpmount, mount_path == NULL ? "/sys/fs/cgroup" : mount_path) != tmpmount) {
+            // Skip controllers created manually or by cset/cpuset (https://github.com/lpechacek/cpuset). E.g.:
+            // 121 32 0:37 / /cpusets rw,relatime shared:69 - cgroup none rw,cpuset
+            // Controllers belonging to a Cgroup are usually mounted under "/sys/fs/cgroup" while
+            // manually mounted controllers are under "/cpusets" or "/dev/cpuset".
+            log_info(os, container)("%s not mounted at %s, skipping!", tmpmount, mount_path == NULL ? "/sys/fs/cgroup" : mount_path);
+            continue;
+          }
       any_cgroup_mounts_found = true;
       while ((token = strsep(&cptr, ",")) != NULL) {
         if (strcmp(token, "memory") == 0) {
           assert(cg_infos[MEMORY_IDX]._mount_path == NULL, "stomping of _mount_path");
+          check_mount_path(&mount_path, tmpmount);
           cg_infos[MEMORY_IDX]._mount_path = os::strdup(tmpmount);
           cg_infos[MEMORY_IDX]._root_mount_path = os::strdup(tmproot);
           cg_infos[MEMORY_IDX]._data_complete = true;
         } else if (strcmp(token, "cpuset") == 0) {
           assert(cg_infos[CPUSET_IDX]._mount_path == NULL, "stomping of _mount_path");
+          check_mount_path(&mount_path, tmpmount);
           cg_infos[CPUSET_IDX]._mount_path = os::strdup(tmpmount);
           cg_infos[CPUSET_IDX]._root_mount_path = os::strdup(tmproot);
           cg_infos[CPUSET_IDX]._data_complete = true;
         } else if (strcmp(token, "cpu") == 0) {
           assert(cg_infos[CPU_IDX]._mount_path == NULL, "stomping of _mount_path");
+          check_mount_path(&mount_path, tmpmount);
           cg_infos[CPU_IDX]._mount_path = os::strdup(tmpmount);
           cg_infos[CPU_IDX]._root_mount_path = os::strdup(tmproot);
           cg_infos[CPU_IDX]._data_complete = true;
         } else if (strcmp(token, "cpuacct") == 0) {
           assert(cg_infos[CPUACCT_IDX]._mount_path == NULL, "stomping of _mount_path");
+          check_mount_path(&mount_path, tmpmount);
           cg_infos[CPUACCT_IDX]._mount_path = os::strdup(tmpmount);
           cg_infos[CPUACCT_IDX]._root_mount_path = os::strdup(tmproot);
           cg_infos[CPUACCT_IDX]._data_complete = true;
@@ -320,6 +351,7 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
       }
     }
   }
+  os::free(mount_path);
   fclose(mntinfo);
 
   // Neither cgroup2 nor cgroup filesystems mounted via /proc/self/mountinfo
