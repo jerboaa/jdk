@@ -294,6 +294,14 @@ bool CgroupSubsystemFactory::determine_type(CgroupInfo* cg_infos,
         // Skip cgroup2 fs lines on hybrid or unified hierarchy.
         continue;
       }
+      if (strcmp(tmpmount, "/sys/fs/cgroup") < 0) {
+        // Skip controllers created manually or by cset/cpuset (https://github.com/lpechacek/cpuset). E.g.:
+        // 121 32 0:37 / /cpusets rw,relatime shared:69 - cgroup none rw,cpuset
+        // Controllers beloning to a Cgroup are usually mounted under "/sys/fs/cgroup" while
+        // manually mounted controllers are under "/cpusets" or "/dev/cpuset".
+        log_info(os, container)("%s not mounted at /sys/fs/cgroup, skipping!", tmpmount);
+        continue;
+      }
       any_cgroup_mounts_found = true;
       while ((token = strsep(&cptr, ",")) != NULL) {
         if (strcmp(token, "memory") == 0) {
