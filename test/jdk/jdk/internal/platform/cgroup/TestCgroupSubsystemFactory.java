@@ -57,6 +57,8 @@ public class TestCgroupSubsystemFactory {
     private Path cgroupv1CgInfoNonZeroHierarchy;
     private Path cgroupv1MntInfoNonZeroHierarchy;
     private Path cgroupv1MntInfoSystemdOnly;
+    private Path cgroupv1MntInfoDoubleCpusets;
+    private Path cgroupv1MntInfoDoubleCpusets2;
     private String mntInfoEmpty = "";
     private String cgroupsZeroHierarchy =
             "#subsys_name hierarchy num_cgroups enabled\n" +
@@ -71,18 +73,18 @@ public class TestCgroupSubsystemFactory {
             "perf_event 0 1 1 ";
     private String mntInfoHybrid =
             "30 23 0:26 / /sys/fs/cgroup ro,nosuid,nodev,noexec shared:4 - tmpfs tmpfs ro,seclabel,mode=755\n" +
-            "31 30 0:27 / /sys/fs/cgroup/unified rw,nosuid,nodev,noexec,relatime shared:5 - cgroup2 cgroup2 rw,seclabel,nsdelegate\n" +
-            "32 30 0:28 / /sys/fs/cgroup/systemd rw,nosuid,nodev,noexec,relatime shared:6 - cgroup cgroup rw,seclabel,xattr,name=systemd\n" +
-            "35 30 0:31 / /sys/fs/cgroup/memory rw,nosuid,nodev,noexec,relatime shared:7 - cgroup cgroup rw,seclabel,memory\n" +
-            "36 30 0:32 / /sys/fs/cgroup/pids rw,nosuid,nodev,noexec,relatime shared:8 - cgroup cgroup rw,seclabel,pids\n" +
-            "37 30 0:33 / /sys/fs/cgroup/perf_event rw,nosuid,nodev,noexec,relatime shared:9 - cgroup cgroup rw,seclabel,perf_event\n" +
-            "38 30 0:34 / /sys/fs/cgroup/net_cls,net_prio rw,nosuid,nodev,noexec,relatime shared:10 - cgroup cgroup rw,seclabel,net_cls,net_prio\n" +
-            "39 30 0:35 / /sys/fs/cgroup/hugetlb rw,nosuid,nodev,noexec,relatime shared:11 - cgroup cgroup rw,seclabel,hugetlb\n" +
-            "40 30 0:36 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev,noexec,relatime shared:12 - cgroup cgroup rw,seclabel,cpu,cpuacct\n" +
-            "41 30 0:37 / /sys/fs/cgroup/devices rw,nosuid,nodev,noexec,relatime shared:13 - cgroup cgroup rw,seclabel,devices\n" +
-            "42 30 0:38 / /sys/fs/cgroup/cpuset rw,nosuid,nodev,noexec,relatime shared:14 - cgroup cgroup rw,seclabel,cpuset\n" +
-            "43 30 0:39 / /sys/fs/cgroup/blkio rw,nosuid,nodev,noexec,relatime shared:15 - cgroup cgroup rw,seclabel,blkio\n" +
-            "44 30 0:40 / /sys/fs/cgroup/freezer rw,nosuid,nodev,noexec,relatime shared:16 - cgroup cgroup rw,seclabel,freezer";
+            "31 30 0:27 / /sys/fs/cgroup/unified rw,nosuid,nodev,noexec,relatime shared:5 - cgroup2 none rw,seclabel,nsdelegate\n" +
+            "32 30 0:28 / /sys/fs/cgroup/systemd rw,nosuid,nodev,noexec,relatime shared:6 - cgroup none rw,seclabel,xattr,name=systemd\n" +
+            "35 30 0:31 / /sys/fs/cgroup/memory rw,nosuid,nodev,noexec,relatime shared:7 - cgroup none rw,seclabel,memory\n" +
+            "36 30 0:32 / /sys/fs/cgroup/pids rw,nosuid,nodev,noexec,relatime shared:8 - cgroup none rw,seclabel,pids\n" +
+            "37 30 0:33 / /sys/fs/cgroup/perf_event rw,nosuid,nodev,noexec,relatime shared:9 - cgroup none rw,seclabel,perf_event\n" +
+            "38 30 0:34 / /sys/fs/cgroup/net_cls,net_prio rw,nosuid,nodev,noexec,relatime shared:10 - cgroup none rw,seclabel,net_cls,net_prio\n" +
+            "39 30 0:35 / /sys/fs/cgroup/hugetlb rw,nosuid,nodev,noexec,relatime shared:11 - cgroup none rw,seclabel,hugetlb\n" +
+            "40 30 0:36 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev,noexec,relatime shared:12 - cgroup none rw,seclabel,cpu,cpuacct\n" +
+            "41 30 0:37 / /sys/fs/cgroup/devices rw,nosuid,nodev,noexec,relatime shared:13 - cgroup none rw,seclabel,devices\n" +
+            "42 30 0:38 / /sys/fs/cgroup/cpuset rw,nosuid,nodev,noexec,relatime shared:14 - cgroup none rw,seclabel,cpuset\n" +
+            "43 30 0:39 / /sys/fs/cgroup/blkio rw,nosuid,nodev,noexec,relatime shared:15 - cgroup none rw,seclabel,blkio\n" +
+            "44 30 0:40 / /sys/fs/cgroup/freezer rw,nosuid,nodev,noexec,relatime shared:16 - cgroup none rw,seclabel,freezer\n";
     private String cgroupsNonZeroHierarchy =
             "#subsys_name hierarchy   num_cgroups enabled\n" +
             "cpuset  9   1   1\n" +
@@ -97,11 +99,14 @@ public class TestCgroupSubsystemFactory {
             "net_prio    5   1   1\n" +
             "hugetlb 6   1   1\n" +
             "pids    3   80  1";
+    private String mntInfoCgroupv1MoreCpusetLine = "121 32 0:37 / /cpusets rw,relatime shared:69 - cgroup none rw,cpuset\n";
     private String mntInfoCgroupsV2Only =
-            "28 21 0:25 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 cgroup2 rw,seclabel,nsdelegate";
+            "28 21 0:25 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 none rw,seclabel,nsdelegate";
     private String mntInfoCgroupsV1SystemdOnly =
             "35 26 0:26 / /sys/fs/cgroup/systemd rw,nosuid,nodev,noexec,relatime - cgroup systemd rw,name=systemd\n" +
             "26 18 0:19 / /sys/fs/cgroup rw,relatime - tmpfs none rw,size=4k,mode=755\n";
+    private String mntInfoCgroupsV1DoubleCpuset = mntInfoHybrid + mntInfoCgroupv1MoreCpusetLine;
+    private String mntInfoCgroupsV1DoubleCpuset2 = mntInfoCgroupv1MoreCpusetLine + mntInfoHybrid;
 
     @Before
     public void setup() {
@@ -125,6 +130,12 @@ public class TestCgroupSubsystemFactory {
 
             cgroupv1MntInfoSystemdOnly = Paths.get(existingDirectory.toString(), "mountinfo_cgroupv1_systemd_only");
             Files.writeString(cgroupv1MntInfoSystemdOnly, mntInfoCgroupsV1SystemdOnly);
+
+            cgroupv1MntInfoDoubleCpusets = Paths.get(existingDirectory.toString(), "mountinfo_cgroupv1_double_cpuset");
+            Files.writeString(cgroupv1MntInfoDoubleCpusets, mntInfoCgroupsV1DoubleCpuset);
+
+            cgroupv1MntInfoDoubleCpusets2 = Paths.get(existingDirectory.toString(), "mountinfo_cgroupv1_double_cpuset");
+            Files.writeString(cgroupv1MntInfoDoubleCpusets2, mntInfoCgroupsV1DoubleCpuset2);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -146,6 +157,22 @@ public class TestCgroupSubsystemFactory {
         Optional<CgroupTypeResult> result = CgroupSubsystemFactory.determineType(mountInfo, cgroups);
 
         assertTrue("zero hierarchy ids with no *relevant* controllers mounted", result.isEmpty());
+    }
+
+    @Test
+    public void testCgroupv1MultipleCpusetMounts() throws IOException {
+	doMultipleCpusetMountsTest(cgroupv1MntInfoDoubleCpusets);
+	doMultipleCpusetMountsTest(cgroupv1MntInfoDoubleCpusets2);
+    }
+
+    private void doMultipleCpusetMountsTest(Path info) throws IOException {
+        String cgroups = cgroupv1CgInfoNonZeroHierarchy.toString();
+        String mountInfo = info.toString();
+        Optional<CgroupTypeResult> result = CgroupSubsystemFactory.determineType(mountInfo, cgroups);
+
+        assertTrue("Expected non-empty cgroup result", result.isPresent());
+        CgroupTypeResult res = result.get();
+        assertFalse("Duplicate cpuset mounts should pick the right controller", res.isCgroupV2());
     }
 
     @Test
