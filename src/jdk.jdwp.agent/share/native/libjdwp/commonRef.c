@@ -27,6 +27,7 @@
 #include <stdint.h>                     /* for uintptr_t */
 #endif
 
+#include <assert.h>
 #include "util.h"
 #include "commonRef.h"
 
@@ -146,6 +147,7 @@ deleteNode(JNIEnv *env, RefNode *node)
         /* Clear tag */
         (void)JVMTI_FUNC_PTR(gdata->jvmti,SetTag)
                             (gdata->jvmti, node->ref, NULL_OBJECT_ID);
+        assert(node->strongCount >= 0);
         if (node->strongCount != 0) {
             JNI_FUNC_PTR(env,DeleteGlobalRef)(env, node->ref);
         } else {
@@ -160,6 +162,7 @@ deleteNode(JNIEnv *env, RefNode *node)
 static jobject
 strengthenNode(JNIEnv *env, RefNode *node)
 {
+    assert(node->strongCount >= 0);
     if (node->strongCount == 0) {
         jobject strongRef;
 
@@ -189,6 +192,7 @@ strengthenNode(JNIEnv *env, RefNode *node)
 static jweak
 weakenNode(JNIEnv *env, RefNode *node)
 {
+    assert(node->strongCount >= 0);
     if (node->strongCount == 1) {
         jweak weakRef;
 
@@ -205,6 +209,7 @@ weakenNode(JNIEnv *env, RefNode *node)
         }
         return weakRef;
     } else {
+        assert(node->strongCount != 0);
         node->strongCount--;
         return node->ref;
     }
