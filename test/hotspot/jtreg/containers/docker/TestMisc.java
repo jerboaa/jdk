@@ -43,6 +43,7 @@ import jdk.test.lib.process.ProcessTools;
 
 public class TestMisc {
     private static final String imageName = Common.imageName("misc");
+    private static final int availableCPUs = Runtime.getRuntime().availableProcessors();
 
     public static void main(String[] args) throws Exception {
         if (!DockerTestUtils.canTestDocker()) {
@@ -56,6 +57,7 @@ public class TestMisc {
             testMinusContainerSupport();
             testIsContainerized();
             testPrintContainerInfo();
+            testPrintContainerInfoCPUOverride();
         } finally {
             DockerTestUtils.removeDockerImage(imageName);
         }
@@ -90,6 +92,24 @@ public class TestMisc {
         Common.addWhiteBoxOpts(opts);
 
         checkContainerInfo(Common.run(opts));
+    }
+
+    private static void testPrintContainerInfoCPUOverride() throws Exception {
+        Common.logNewTestCase("Test print_container_info() CPU override");
+
+        if (availableCPUs <= 1) {
+            System.out.println("Test Environment: detected availableCPUs <= 1, skipping test.");
+            return;
+        }
+        int cpuQuota = 2;
+        int activeProcCountCPU = 1;
+        DockerRunOptions opts = Common.newOpts(imageName, "PrintContainerInfo")
+            .addJavaOpts("-XX:ActiveProcessorCount=" + activeProcCountCPU)
+            .addDockerOpts("--cpu-period=" + 10000)
+            .addDockerOpts("--cpu-quota=" + cpuQuota * 10000);
+        Common.addWhiteBoxOpts(opts);
+
+        Common.run(opts).shouldContain(cpuQuota + ", but overridden by -XX:ActiveProcessorCount " + activeProcCountCPU);
     }
 
 
