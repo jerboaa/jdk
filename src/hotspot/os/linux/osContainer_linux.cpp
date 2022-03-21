@@ -36,6 +36,17 @@ bool  OSContainer::_is_initialized   = false;
 bool  OSContainer::_is_containerized = false;
 CgroupSubsystem* cgroup_subsystem;
 
+static bool check_container_file(const char* container_file) {
+  bool has_container_file = false;
+  int fd = os::open(container_file, O_RDONLY, 0);
+  if (fd >= 0) {
+    has_container_file = true;
+    ::close(fd);
+  }
+  log_trace(os, container)("Container env file '%s' %s", container_file, (has_container_file ? "present" : "missing"));
+  return has_container_file;
+}
+
 /* init
  *
  * Initialize the container support and determine if
@@ -43,6 +54,9 @@ CgroupSubsystem* cgroup_subsystem;
  */
 void OSContainer::init() {
   jlong mem_limit;
+  bool container_file_present = false;
+  const char* podman_file = "/run/.containerenv";
+  const char* docker_file = "/.dockerenv";
 
   assert(!_is_initialized, "Initializing OSContainer more than once");
 
@@ -59,15 +73,20 @@ void OSContainer::init() {
   if (cgroup_subsystem == NULL) {
     return; // Required subsystem files not found or other error
   }
+  // We should only report/use container values when actually in a container
+  // like podman or docker. Check for presence of relevant container engine
+  // environment files.
+  container_file_present = check_container_file(docker_file);
+  container_file_present = container_file_present || check_container_file(podman_file);
+  _is_containerized = container_file_present || IsContainerized;
+  log_info(os, container)("OSContainer::is_containerized: %s", (_is_containerized ? "true" : "false"));
+
   // We need to update the amount of physical memory now that
   // cgroup subsystem files have been processed.
-  if ((mem_limit = cgroup_subsystem->memory_limit_in_bytes()) > 0) {
+  if (_is_containerized && (mem_limit = cgroup_subsystem->memory_limit_in_bytes()) > 0) {
     os::Linux::set_physical_memory(mem_limit);
     log_info(os, container)("Memory Limit is: " JLONG_FORMAT, mem_limit);
   }
-
-  _is_containerized = true;
-
 }
 
 const char * OSContainer::container_type() {

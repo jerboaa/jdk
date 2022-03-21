@@ -53,6 +53,7 @@ public class MetricsTester {
     }
 
     public void testAll(Metrics m) throws Exception {
+        System.out.println("MetricsTester.testAll()");
         CgroupMetricsTester tester =  createInstance(m);
         tester.testCpuAccounting();
         tester.testCpuConsumption();

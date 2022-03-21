@@ -38,7 +38,7 @@ import jdk.test.lib.containers.docker.DockerTestUtils;
  * @library /test/lib
  * @modules java.base/jdk.internal.platform
  * @build MetricsCpuTester
- * @run main/timeout=360 TestDockerCpuMetrics
+ * @run main/othervm/timeout=360 -XX:+IsContainerized TestDockerCpuMetrics
  */
 
 public class TestDockerCpuMetrics {

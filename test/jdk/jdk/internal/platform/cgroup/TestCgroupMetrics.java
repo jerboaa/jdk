@@ -27,7 +27,8 @@
  * @requires os.family == "linux"
  * @modules java.base/jdk.internal.platform
  * @library /test/lib
- * @run main TestCgroupMetrics
+ * @run main/othervm -XX:+IsContainerized TestCgroupMetrics true
+ * @run main/othervm -XX:-IsContainerized TestCgroupMetrics false
  */
 
 import jdk.test.lib.containers.cgroup.MetricsTester;
@@ -36,8 +37,15 @@ import jdk.internal.platform.Metrics;
 public class TestCgroupMetrics {
 
     public static void main(String[] args) throws Exception {
-        // If cgroups is not configured, report success.
+        if (args.length != 1) {
+            throw new RuntimeException("Test failed!");
+        }
+        boolean expectedIsContainerized = Boolean.parseBoolean(args[0]);
         Metrics metrics = Metrics.systemMetrics();
+        if (!expectedIsContainerized && metrics != null) {
+            throw new RuntimeException("Test failed! -XX:-IsContainerized but got system metrics?! Huh?");
+        }
+        System.out.println("TestCgroupMetrics -XX:" + (expectedIsContainerized ? "+" : "-") + "IsContainerized");
         if (metrics == null) {
             System.out.println("TEST PASSED!!!");
             return;

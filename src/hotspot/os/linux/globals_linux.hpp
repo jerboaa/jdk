@@ -63,6 +63,9 @@
           "(Deprecated) Include CPU shares in the CPU availability"     \
           " calculation.")                                              \
                                                                         \
+  product(bool, IsContainerized, false,                                 \
+          "(Deprecated) Override is containerized detection logic")     \
+                                                                        \
   product(bool, PreferContainerQuotaForCPUCount, true,                  \
           "(Deprecated) Calculate the container CPU availability based" \
           " on the value of quotas (if set), when true. Otherwise, use" \

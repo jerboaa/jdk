@@ -29,7 +29,7 @@
  * @library /testlibrary /test/lib
  * @build sun.hotspot.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller sun.hotspot.WhiteBox
- * @run main/othervm -Xbootclasspath/a:. -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI PlainRead
+ * @run main/othervm -Xbootclasspath/a:. -XX:+IsContainerized -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI PlainRead
  */
 
 import jdk.test.lib.process.ProcessTools;
@@ -67,7 +67,7 @@ public class PlainRead {
 
     public static void main(String[] args) throws Exception {
         WhiteBox wb = WhiteBox.getWhiteBox();
-        ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-Xlog:os+container=trace", "-version");
+        ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-Xlog:os+container=trace", "-XX:+IsContainerized", "-version");
         OutputAnalyzer output = new OutputAnalyzer(pb.start());
 
         if (wb.isContainerized()) {

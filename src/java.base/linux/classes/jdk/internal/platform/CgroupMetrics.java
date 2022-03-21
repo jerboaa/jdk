@@ -25,10 +25,13 @@
 
 package jdk.internal.platform;
 
+import java.io.File;
 import java.util.Objects;
 
 public class CgroupMetrics implements Metrics {
 
+    private static final String DOCKER_CONTAINER_FILE = "/.dockerenv";
+    private static final String PODMAN_CONTAINER_FILE = "/run/.containerenv";
     private final CgroupSubsystem subsystem;
 
     CgroupMetrics(CgroupSubsystem subsystem) {
@@ -174,9 +177,20 @@ public class CgroupMetrics implements Metrics {
             // Return null on -XX:-UseContainerSupport
             return null;
         }
+        boolean hasContainerEnvFile = new File(DOCKER_CONTAINER_FILE).exists();
+        hasContainerEnvFile = hasContainerEnvFile || new File(PODMAN_CONTAINER_FILE).exists();
+        boolean useMetrics = hasContainerEnvFile || isContainerized();
+        if (!useMetrics) {
+            // Return null if we have UseContainerSupport
+            // turned on, but aren't actually in a Linux
+            // container: Docker or Podman. Override with
+            // -XX:+IsContainerized
+            return null;
+        }
         return CgroupSubsystemFactory.create();
     }
 
     private static native boolean isUseContainerSupport();
+    private static native boolean isContainerized();
 
 }

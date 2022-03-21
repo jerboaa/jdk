@@ -496,6 +496,15 @@ JVM_LEAF(jboolean, JVM_IsUseContainerSupport(void))
   return JNI_FALSE;
 JVM_END
 
+JVM_LEAF(jboolean, JVM_IsContainerized(void))
+#ifdef LINUX
+  if (IsContainerized) {
+    return JNI_TRUE;
+  }
+#endif
+  return JNI_FALSE;
+JVM_END
+
 // java.lang.Throwable //////////////////////////////////////////////////////
 
 JVM_ENTRY(void, JVM_FillInStackTrace(JNIEnv *env, jobject receiver))
