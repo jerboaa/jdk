@@ -135,6 +135,12 @@ TEST(CgroupTest, SubSystemFileLineContentsTests) {
   err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
   EXPECT_EQ(err, 0);
   EXPECT_STREQ(s, "1");
+
+  s[0] = '\0';
+  fill_file(test_file, "foo\ttest\nfoot car");
+  err = subsystem_file_line_contents(&my_controller, test_file, "foo", "%s", &s);
+  EXPECT_EQ(err, 0);
+  EXPECT_STREQ(s, "test");
 }
 
 #endif // LINUX
