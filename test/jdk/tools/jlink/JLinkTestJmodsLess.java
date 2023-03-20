@@ -24,6 +24,7 @@
 import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -66,6 +67,7 @@ public class JLinkTestJmodsLess {
         testCustomModuleJlinking(helper);
         testJlinkJavaSEReproducible(helper);
         testAddOptions(helper);
+        testSaveJlinkOptions(helper);
     }
 
     public static void testAddOptions(Helper helper) throws Exception {
@@ -74,7 +76,15 @@ public class JLinkTestJmodsLess {
         verifyListModules(finalImage, List.of("java.base"));
         verifyParallelGCInUse(finalImage);
         System.out.println("testAddOptions PASSED!");
+    }
 
+    public static void testSaveJlinkOptions(Helper helper) throws Exception {
+        String vendorVersion = "jmodless";
+        Path jlinkOptsFile = createJlinkOptsFile(List.of("--compress", "zip-6", "--vendor-version", vendorVersion));
+        List<String> extraOpts = List.of("--save-jlink-argfiles", jlinkOptsFile.toAbsolutePath().toString());
+        Path finalImage = createJavaImageJmodLess(helper, "java-base-with-jlink-opts", "jdk.jlink", extraOpts);
+        verifyVendorVersion(finalImage, vendorVersion);
+        System.out.println("testSaveJlinkOptions PASSED!");
     }
 
     public static void testCustomModuleJlinking(Helper helper) throws Exception {
@@ -115,6 +125,36 @@ public class JLinkTestJmodsLess {
             throw new RuntimeException("jlink producing inconsistent result for java.se (jmod-less)");
         }
         System.out.println("testJlinkJavaSEReproducible PASSED!");
+    }
+
+    private static void verifyVendorVersion(Path finalImage, String vendorVersion) throws Exception {
+        Process p = runJavaCmd(finalImage, List.of("--version"));
+        BufferedReader buf = p.inputReader();
+        List<String> outLines = new ArrayList<>();
+        try (Stream<String> lines = buf.lines()) {
+            if (!lines.anyMatch(l -> {
+                    outLines.add(l);
+                    return l.contains(vendorVersion); }
+            )) {
+                if (DEBUG) {
+                    System.err.println(outLines.stream().collect(Collectors.joining("\n")));
+                }
+                throw new AssertionError("Expected vendor version " + vendorVersion + " in jlinked image.");
+            }
+        }
+    }
+
+    /**
+     * Create a temporary file for use via --save-jlink-options-file
+     * @param options The options to save in the file.
+     * @return The path to the temporary file
+     */
+    private static Path createJlinkOptsFile(List<String> options) throws Exception {
+        Path tmpFile = Files.createTempFile("JLinkTestJmodsLess", "jlink-options-file");
+        tmpFile.toFile().deleteOnExit();
+        String content = options.stream().collect(Collectors.joining("\n"));
+        Files.writeString(tmpFile, content, StandardOpenOption.TRUNCATE_EXISTING);
+        return tmpFile;
     }
 
     private static void verifyParallelGCInUse(Path finalImage) throws Exception {
@@ -175,11 +215,11 @@ public class JLinkTestJmodsLess {
         List<String> javaCmd = Collections.unmodifiableList(cmd);
         ProcessBuilder builder = new ProcessBuilder(javaCmd);
         Process p = builder.start();
-        BufferedReader errReader = p.errorReader();
-        BufferedReader outReader = p.inputReader();
         int status = p.waitFor();
         if (status != 0) {
             if (DEBUG) {
+                BufferedReader errReader = p.errorReader();
+                BufferedReader outReader = p.inputReader();
                 readAndPrintReaders(errReader, outReader);
             }
             throw new AssertionError("'" + javaCmd.stream().collect(Collectors.joining(" ")) + "'"
