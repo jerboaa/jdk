@@ -22,9 +22,13 @@
  */
 
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -68,6 +72,7 @@ public class JLinkTestJmodsLess {
         testJlinkJavaSEReproducible(helper);
         testAddOptions(helper);
         testSaveJlinkOptions(helper);
+        testJmodLessJmodFullCompare(helper);
     }
 
     public static void testAddOptions(Helper helper) throws Exception {
@@ -112,6 +117,48 @@ public class JLinkTestJmodsLess {
         Path finalImage = createJavaBaseJmodLess(helper, "java-base");
         verifyListModules(finalImage, List.of("java.base"));
         System.out.println("testBasicJlinking PASSED!");
+    }
+
+    public static void testJmodLessJmodFullCompare(Helper helper) throws Exception {
+        // create a java.se using jmod-less approach
+        Path javaSEJmodLess = createJavaImageJmodLess(helper, "java-se-jmodless", "java.se");
+
+        // create a java.se using packaged modules (jmod-full)
+        Path javaSEJmodFull = JImageGenerator.getJLinkTask()
+                .output(helper.createNewImageDir("java-se-jmodfull"))
+                .addMods("java.se").call().assertSuccess();
+
+        compareRecursively(javaSEJmodLess, javaSEJmodFull);
+    }
+
+    // Visit all files in the given directories checking that they're byte-by-byte identical
+    private static void compareRecursively(Path javaSEJmodLess,
+            Path javaSEJmodFull) throws IOException, AssertionError {
+        FilesCapturingVisitor jmodFullVisitor = new FilesCapturingVisitor(javaSEJmodFull);
+        FilesCapturingVisitor jmodLessVisitor = new FilesCapturingVisitor(javaSEJmodLess);
+        Files.walkFileTree(javaSEJmodFull, jmodFullVisitor);
+        Files.walkFileTree(javaSEJmodLess, jmodLessVisitor);
+        List<String> jmodFullFiles = jmodFullVisitor.filesVisited();
+        List<String> jmodLessFiles = jmodLessVisitor.filesVisited();
+        Collections.sort(jmodFullFiles);
+        Collections.sort(jmodLessFiles);
+
+        if (jmodFullFiles.size() != jmodLessFiles.size()) {
+            throw new AssertionError(String.format("Size of files different for jmod-less (%d) vs jmod-full (%d) java.se jlink", jmodLessFiles.size(), jmodFullFiles.size()));
+        }
+        // Compare all files
+        for (int i = 0; i < jmodFullFiles.size(); i++) {
+            String jmodFullPath = jmodFullFiles.get(i);
+            String jmodLessPath = jmodLessFiles.get(i);
+            if (!jmodFullPath.equals(jmodLessPath)) {
+                throw new AssertionError(String.format("jmod-full path (%s) != jmod-less path (%s)", jmodFullPath, jmodLessPath));
+            }
+            Path a = javaSEJmodFull.resolve(Path.of(jmodFullPath));
+            Path b = javaSEJmodLess.resolve(Path.of(jmodLessPath));
+            if (Files.mismatch(a, b) != -1L) {
+                throw new AssertionError("Files mismatch: " + a + " vs. " + b);
+            }
+        }
     }
 
     public static void testJlinkJavaSEReproducible(Helper helper) throws Exception {
@@ -351,5 +398,24 @@ public class JLinkTestJmodsLess {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").startsWith("Windows");
+    }
+
+    static class FilesCapturingVisitor extends SimpleFileVisitor<Path> {
+        private final Path basePath;
+        private final List<String> filePaths = new ArrayList<>();
+        public FilesCapturingVisitor(Path basePath) {
+            this.basePath = basePath;
+        }
+
+        @Override
+        public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) {
+            Path relative = basePath.relativize(path);
+            filePaths.add(relative.toString());
+            return FileVisitResult.CONTINUE;
+        }
+
+        List<String> filesVisited() {
+            return filePaths;
+        }
     }
 }
