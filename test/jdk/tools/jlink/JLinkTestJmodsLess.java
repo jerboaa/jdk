@@ -72,12 +72,19 @@ public class JLinkTestJmodsLess {
         testJlinkJavaSEReproducible(helper);
         testAddOptions(helper);
         testSaveJlinkOptions(helper);
+        testJmodLessSystemModules(helper);
         testJmodLessJmodFullCompare(helper);
     }
 
     public static void testAddOptions(Helper helper) throws Exception {
-        List<String> extraOpts = List.of("--add-options", "-Xlog:gc=info:stderr -XX:+UseParallelGC");
-        Path finalImage = createJavaImageJmodLess(helper, "java-base-with-opts", "java.base", extraOpts);
+        Path finalImage = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+                                                        .addExtraOption("--add-options")
+                                                        .addExtraOption("-Xlog:gc=info:stderr -XX:+UseParallelGC")
+                                                        .name("java-base-with-opts")
+                                                        .addModule("java.base")
+                                                        .validatingModule("java.base")
+                                                        .helper(helper)
+                                                        .build());
         verifyListModules(finalImage, List.of("java.base"));
         verifyParallelGCInUse(finalImage);
         System.out.println("testAddOptions PASSED!");
@@ -86,8 +93,14 @@ public class JLinkTestJmodsLess {
     public static void testSaveJlinkOptions(Helper helper) throws Exception {
         String vendorVersion = "jmodless";
         Path jlinkOptsFile = createJlinkOptsFile(List.of("--compress", "zip-6", "--vendor-version", vendorVersion));
-        List<String> extraOpts = List.of("--save-jlink-argfiles", jlinkOptsFile.toAbsolutePath().toString());
-        Path finalImage = createJavaImageJmodLess(helper, "java-base-with-jlink-opts", "jdk.jlink", extraOpts);
+        Path finalImage = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+                                                        .addExtraOption("--save-jlink-argfiles")
+                                                        .addExtraOption(jlinkOptsFile.toAbsolutePath().toString())
+                                                        .addModule("jdk.jlink")
+                                                        .name("java-base-with-jlink-opts")
+                                                        .helper(helper)
+                                                        .validatingModule("java.base")
+                                                        .build());
         verifyVendorVersion(finalImage, vendorVersion);
         System.out.println("testSaveJlinkOptions PASSED!");
     }
@@ -98,14 +111,24 @@ public class JLinkTestJmodsLess {
 
         // create a base image including jdk.jlink and the leaf1 module. This will
         // add the leaf1 module's module path.
-        Path jlinkImage = createBaseJlinkImage(helper, "cmod-jlink", List.of("jdk.jlink", customModule));
+        Path jlinkImage = createBaseJlinkImage(new BaseJlinkSpecBuilder()
+                                                    .helper(helper)
+                                                    .name("cmod-jlink")
+                                                    .addModule(customModule)
+                                                    .validatingModule("java.base") // not used
+                                                    .build());
 
         // Now that the base image already includes the 'leaf1' module, it should
         // be possible to jlink it again, asking for *only* the 'leaf1' plugin even
         // though we won't have any jmods directories present.
-        List<String> expectedLocations = List.of(customModule + ".com.foo.bar.X");
-        String[] expectedFiles = new String[] {}; // no expected files in 'leaf1' module
-        Path finalImage = jlinkUsingImage(helper, jlinkImage, customModule, expectedLocations, expectedFiles);
+        Path finalImage = jlinkUsingImage(new JlinkSpecBuilder()
+                                                .imagePath(jlinkImage)
+                                                .helper(helper)
+                                                .name(customModule)
+                                                .expectedLocation(String.format("/%s/%s/com/foo/bar/X.class", customModule, customModule))
+                                                .addModule(customModule)
+                                                .validatingModule(customModule)
+                                                .build());
         // Expected only the transitive closure of "leaf1" module in the --list-modules
         // output of the java launcher.
         List<String> expectedModules = List.of("java.base", customModule);
@@ -121,7 +144,13 @@ public class JLinkTestJmodsLess {
 
     public static void testJmodLessJmodFullCompare(Helper helper) throws Exception {
         // create a java.se using jmod-less approach
-        Path javaSEJmodLess = createJavaImageJmodLess(helper, "java-se-jmodless", "java.se");
+        //Path javaSEJmodLess = createJavaImageJmodLess(helper, "java-se-jmodless", "java.se");
+        Path javaSEJmodLess = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+                                                            .helper(helper)
+                                                            .name("java-se-jmodless")
+                                                            .addModule("java.se")
+                                                            .validatingModule("java.se")
+                                                            .build());
 
         // create a java.se using packaged modules (jmod-full)
         Path javaSEJmodFull = JImageGenerator.getJLinkTask()
@@ -129,6 +158,44 @@ public class JLinkTestJmodsLess {
                 .addMods("java.se").call().assertSuccess();
 
         compareRecursively(javaSEJmodLess, javaSEJmodFull);
+    }
+
+    /*
+     * SystemModule classes are module specific. If the jlink is based on the
+     * modules image, then earlier generated SystemModule classes shall not get
+     * propagated.
+     */
+    public static void testJmodLessSystemModules(Helper helper) throws Exception {
+        // create a full image with all modules using jmod-less approach
+        //Path allModsJmodLess = createJavaImageJmodLess(helper, "all-mods-jmodless", "ALL-MODULE-PATH");
+        Path allModsJmodLess = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+                                                            .helper(helper)
+                                                            .name("all-mods-jmodless")
+                                                            .addModule("ALL-MODULE-PATH")
+                                                            .validatingModule("java.base")
+                                                            .build());
+        // Derive another jmodless image, including java.se and jdk.jlink.
+        Path javaseJmodless = jlinkUsingImage(new JlinkSpecBuilder()
+                                                    .helper(helper)
+                                                    .imagePath(allModsJmodLess)
+                                                    .name("javase-jlink-jmodless-derived")
+                                                    .addModule("java.se")
+                                                    .addModule("jdk.jlink")
+                                                    .validatingModule("java.base")
+                                                    .build());
+        // Finally attempt another jmodless link reducing java.se to java.base
+        jlinkUsingImage(new JlinkSpecBuilder()
+                                .helper(helper)
+                                .imagePath(javaseJmodless)
+                                .name("java.base-from-java.se-derived")
+                                .addModule("java.base")
+                                .expectedLocation("/java.base/jdk/internal/module/SystemModulesMap.class")
+                                .expectedLocation("/java.base/jdk/internal/module/SystemModules.class")
+                                .expectedLocation("/java.base/jdk/internal/module/SystemModules$all.class")
+                                .unexpectedLocation("/java.base/jdk/internal/module/SystemModules$0.class")
+                                .unexpectedLocation("/java.base/jdk/internal/module/SystemModules$default.class")
+                                .validatingModule("java.base")
+                                .build());
     }
 
     // Visit all files in the given directories checking that they're byte-by-byte identical
@@ -162,14 +229,25 @@ public class JLinkTestJmodsLess {
     }
 
     public static void testJlinkJavaSEReproducible(Helper helper) throws Exception {
+        String javaSeModule = "java.se";
         // create a java.se using jmod-less approach
-        Path javaSEJmodLess1 = createJavaImageJmodLess(helper, "java-se-repro1", "java.se");
+        Path javaSEJmodLess1 = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+                                                                   .helper(helper)
+                                                                   .name("java-se-repro1")
+                                                                   .addModule(javaSeModule)
+                                                                   .validatingModule(javaSeModule)
+                                                                   .build());
 
         // create another java.se version using jmod-less approach
-        Path javaSEJmodLess2 = createJavaImageJmodLess(helper, "java-se-repro2", "java.se");
+        Path javaSEJmodLess2 = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+                                                                   .helper(helper)
+                                                                   .name("java-se-repro2")
+                                                                   .addModule(javaSeModule)
+                                                                   .validatingModule(javaSeModule)
+                                                                   .build());
         if (Files.mismatch(javaSEJmodLess1.resolve("lib").resolve("modules"),
                            javaSEJmodLess2.resolve("lib").resolve("modules")) != -1L) {
-            throw new RuntimeException("jlink producing inconsistent result for java.se (jmod-less)");
+            throw new RuntimeException("jlink producing inconsistent result for " + javaSeModule + " (jmod-less)");
         }
         System.out.println("testJlinkJavaSEReproducible PASSED!");
     }
@@ -214,25 +292,33 @@ public class JLinkTestJmodsLess {
         }
     }
 
-    private static Path createJavaImageJmodLess(Helper helper, String name, String module) throws Exception {
-        return createJavaImageJmodLess(helper, name, module, null);
-    }
-
-    private static Path createJavaImageJmodLess(Helper helper, String name, String module, List<String> extraOptions) throws Exception {
+    private static Path createJavaImageJmodLess(BaseJlinkSpec baseSpec) throws Exception {
         // create a base image only containing the jdk.jlink module and its transitive closure
-        Path jlinkJmodlessImage = createBaseJlinkImage(helper, name + "-jlink", List.of("jdk.jlink", module), extraOptions);
+        Path jlinkJmodlessImage = createBaseJlinkImage(baseSpec);
 
-        // Expect java.lang.String class
-        List<String> expectedLocations = List.of("java.lang.String");
         // On Windows jvm.dll is in 'bin' after the jlink
         Path libjvm = Path.of((isWindows() ? "bin" : "lib"), "server", System.mapLibraryName("jvm"));
+        JlinkSpecBuilder builder = new JlinkSpecBuilder();
         // And expect libjvm (not part of the jimage) to be present in the resulting image
-        String[] expectedFiles = new String[] { libjvm.toString() };
-        return jlinkUsingImage(helper, jlinkJmodlessImage, name, module, expectedLocations, expectedFiles, extraOptions);
+        builder.expectedFile(libjvm.toString())
+               .helper(baseSpec.getHelper())
+               .name(baseSpec.getName())
+               .validatingModule(baseSpec.getValidatingModule())
+               .imagePath(jlinkJmodlessImage)
+               .expectedLocation("/java.base/java/lang/String.class");
+        for (String m: baseSpec.getModules()) {
+            builder.addModule(m);
+        }
+        return jlinkUsingImage(builder.build());
     }
 
     private static Path createJavaBaseJmodLess(Helper helper, String name) throws Exception {
-        return createJavaImageJmodLess(helper, name, "java.base");
+        BaseJlinkSpecBuilder builder = new BaseJlinkSpecBuilder();
+        builder.helper(helper)
+               .name(name)
+               .addModule("java.base")
+               .validatingModule("java.base");
+        return createJavaImageJmodLess(builder.build());
     }
 
     /**
@@ -285,26 +371,23 @@ public class JLinkTestJmodsLess {
         }
     }
 
-    private static Path createBaseJlinkImage(Helper helper, String name, List<String> modules) throws Exception {
-        return createBaseJlinkImage(helper, name, modules, null);
-    }
-
-    private static Path createBaseJlinkImage(Helper helper, String name, List<String> modules, List<String> extraOpts) throws Exception {
+    private static Path createBaseJlinkImage(BaseJlinkSpec baseSpec) throws Exception {
         // Jlink an image including jdk.jlink (i.e. the jlink tool). The
         // result must not contain a jmods directory.
-        Path jlinkJmodlessImage = helper.createNewImageDir(name);
+        Path jlinkJmodlessImage = baseSpec.getHelper().createNewImageDir(baseSpec.getName() + "-jlink");
         JLinkTask task = JImageGenerator.getJLinkTask();
-        if (modules.contains("leaf1")) {
-            task.modulePath(helper.getJmodDir().toString());
+        if (baseSpec.getModules().contains("leaf1")) {
+            task.modulePath(baseSpec.getHelper().getJmodDir().toString());
         }
         task.output(jlinkJmodlessImage);
-        for (String module: modules) {
+        for (String module: baseSpec.getModules()) {
             task.addMods(module);
         }
-        if (extraOpts != null) {
-            for (String opt: extraOpts) {
-                task.option(opt);
-            }
+        if (!baseSpec.getModules().contains("ALL-MODULE-PATH")) {
+            task.addMods("jdk.jlink"); // needed for the recursive jlink
+        }
+        for (String opt: baseSpec.getExtraOptions()) {
+            task.option(opt);
         }
         task.option("--verbose")
             .call().assertSuccess();
@@ -315,43 +398,20 @@ public class JLinkTestJmodsLess {
         return jlinkJmodlessImage;
     }
 
-    private static Path jlinkUsingImage(Helper helper,
-                                        Path jmodsLessImage,
-                                        String module,
-                                        List<String> expectedLocations,
-                                        String[] expectedFiles) throws Exception {
-        return jlinkUsingImage(helper, jmodsLessImage, module, module, expectedLocations, expectedFiles);
-    }
-
-    private static Path jlinkUsingImage(Helper helper,
-            Path jmodsLessImage,
-            String name,
-            String module,
-            List<String> expectedLocations,
-            String[] expectedFiles) throws Exception {
-        return jlinkUsingImage(helper, jmodsLessImage, name, module, expectedLocations, expectedFiles, null);
-    }
-
-    private static Path jlinkUsingImage(Helper helper,
-                                        Path jmodsLessImage,
-                                        String name,
-                                        String module,
-                                        List<String> expectedLocations,
-                                        String[] expectedFiles,
-                                        List<String> extraJlinkOptions) throws Exception {
-        String jmodLessGeneratedImage = "target-jmodless-" + name;
-        Path targetImageDir = helper.createNewImageDir(jmodLessGeneratedImage);
-        Path targetJlink = jmodsLessImage.resolve("bin").resolve(getJlink());
+    private static Path jlinkUsingImage(JlinkSpec spec) throws Exception {
+        String jmodLessGeneratedImage = "target-jmodless-" + spec.getName();
+        Path targetImageDir = spec.getHelper().createNewImageDir(jmodLessGeneratedImage);
+        Path targetJlink = spec.getImageToUse().resolve("bin").resolve(getJlink());
         String[] jlinkCmdArray = new String[] {
                 targetJlink.toString(),
                 "--output", targetImageDir.toString(),
                 "--verbose",
-                "--add-modules", module
+                "--add-modules", spec.getModules().stream().collect(Collectors.joining(","))
         };
         List<String> jlinkCmd = new ArrayList<>();
         jlinkCmd.addAll(Arrays.asList(jlinkCmdArray));
-        if (extraJlinkOptions != null && !extraJlinkOptions.isEmpty()) {
-            jlinkCmd.addAll(extraJlinkOptions);
+        if (spec.getExtraJlinkOpts() != null && !spec.getExtraJlinkOpts().isEmpty()) {
+            jlinkCmd.addAll(spec.getExtraJlinkOpts());
         }
         jlinkCmd = Collections.unmodifiableList(jlinkCmd); // freeze
         System.out.println("DEBUG: jmod-less jlink command: " + jlinkCmd.stream().collect(
@@ -370,9 +430,12 @@ public class JLinkTestJmodsLess {
         }
 
         // validate the resulting image; Includes running 'java -version'
-        JImageValidator validator = new JImageValidator(module, expectedLocations,
-                targetImageDir.toFile(), Collections.emptyList(), Collections.emptyList(), expectedFiles);
-        validator.validate();
+        JImageValidator validator = new JImageValidator(spec.getValidatingModule(), spec.getExpectedLocations(),
+                targetImageDir.toFile(), spec.getUnexpectedLocations(), Collections.emptyList(), spec.getExpectedFiles());
+        validator.validate(); // This doesn't validate locations
+        if (!spec.getExpectedLocations().isEmpty() || !spec.getUnexpectedLocations().isEmpty()) {
+            JImageValidator.validate(targetImageDir.resolve("lib").resolve("modules"), spec.getExpectedLocations(), spec.getUnexpectedLocations());
+        }
         return targetImageDir;
     }
 
@@ -398,6 +461,213 @@ public class JLinkTestJmodsLess {
 
     private static boolean isWindows() {
         return System.getProperty("os.name").startsWith("Windows");
+    }
+
+    static class BaseJlinkSpec {
+        final Helper helper;
+        final String name;
+        final String validatingModule;
+        final List<String> modules;
+        final List<String> extraOptions;
+        BaseJlinkSpec(Helper helper, String name, String validatingModule, List<String> modules, List<String> extraOptions) {
+            this.helper = helper;
+            this.name = name;
+            this.modules = modules;
+            this.extraOptions = extraOptions;
+            this.validatingModule = validatingModule;
+        }
+        public String getValidatingModule() {
+            return validatingModule;
+        }
+        public Helper getHelper() {
+            return helper;
+        }
+        public String getName() {
+            return name;
+        }
+        public List<String> getModules() {
+            return modules;
+        }
+        public List<String> getExtraOptions() {
+            return extraOptions;
+        }
+    }
+
+    static class BaseJlinkSpecBuilder {
+        Helper helper;
+        String name;
+        String validatingModule;
+        List<String> modules = new ArrayList<>();
+        List<String> extraOptions = new ArrayList<>();
+
+        BaseJlinkSpecBuilder addModule(String module) {
+            modules.add(module);
+            return this;
+        }
+
+        BaseJlinkSpecBuilder addExtraOption(String option) {
+            extraOptions.add(option);
+            return this;
+        }
+
+        BaseJlinkSpecBuilder helper(Helper helper) {
+            this.helper = helper;
+            return this;
+        }
+
+        BaseJlinkSpecBuilder name(String name) {
+            this.name = name;
+            return this;
+        }
+
+        BaseJlinkSpecBuilder validatingModule(String module) {
+            this.validatingModule = module;
+            return this;
+        }
+
+        BaseJlinkSpec build() {
+            if (name == null) {
+                throw new IllegalStateException("Name must be set");
+            }
+            if (helper == null) {
+                throw new IllegalStateException("helper must be set");
+            }
+            if (validatingModule == null) {
+                throw new IllegalStateException("the module which should get validated must be set");
+            }
+            return new BaseJlinkSpec(helper, name, validatingModule, modules, extraOptions);
+        }
+    }
+
+    static class JlinkSpec {
+        final Path imageToUse;
+        final Helper helper;
+        final String name;
+        final List<String> modules;
+        final String validatingModule;
+        final List<String> expectedLocations;
+        final List<String> unexpectedLocations;
+        final String[] expectedFiles;
+        final List<String> extraJlinkOpts;
+        JlinkSpec(Path imageToUse,
+                  Helper helper,
+                  String name,
+                  List<String> modules,
+                  String validatingModule,
+                  List<String> expectedLocations,
+                  List<String> unexpectedLocations,
+                  String[] expectedFiles,
+                  List<String> extraJlinkOpts) {
+            this.imageToUse = imageToUse;
+            this.helper = helper;
+            this.name = name;
+            this.modules = modules;
+            this.validatingModule = validatingModule;
+            this.expectedLocations = expectedLocations;
+            this.unexpectedLocations = unexpectedLocations;
+            this.expectedFiles = expectedFiles;
+            this.extraJlinkOpts = extraJlinkOpts;
+        }
+        public Path getImageToUse() {
+            return imageToUse;
+        }
+        public Helper getHelper() {
+            return helper;
+        }
+        public String getName() {
+            return name;
+        }
+        public List<String> getModules() {
+            return modules;
+        }
+        public String getValidatingModule() {
+            return validatingModule;
+        }
+        public List<String> getExpectedLocations() {
+            return expectedLocations;
+        }
+        public List<String> getUnexpectedLocations() {
+            return unexpectedLocations;
+        }
+        public String[] getExpectedFiles() {
+            return expectedFiles;
+        }
+        public List<String> getExtraJlinkOpts() {
+            return extraJlinkOpts;
+        }
+    }
+
+    static class JlinkSpecBuilder {
+        Path imageToUse;
+        Helper helper;
+        String name;
+        List<String> modules = new ArrayList<>();
+        String validatingModule;
+        List<String> expectedLocations = new ArrayList<>();
+        List<String> unexpectedLocations = new ArrayList<>();
+        List<String> expectedFiles = new ArrayList<>();
+        List<String> extraJlinkOpts = new ArrayList<>();
+
+        JlinkSpec build() {
+            if (imageToUse == null) {
+                throw new IllegalStateException("No image to use for jlink specified!");
+            }
+            if (helper == null) {
+                throw new IllegalStateException("No helper specified!");
+            }
+            if (name == null) {
+                throw new IllegalStateException("No name for the image location specified!");
+            }
+            if (validatingModule == null) {
+                throw new IllegalStateException("No module specified for after generation validation!");
+            }
+            return new JlinkSpec(imageToUse, helper, name, modules, validatingModule, expectedLocations, unexpectedLocations, expectedFiles.toArray(new String[0]), extraJlinkOpts);
+        }
+
+        JlinkSpecBuilder imagePath(Path image) {
+            this.imageToUse = image;
+            return this;
+        }
+
+        JlinkSpecBuilder helper(Helper helper) {
+            this.helper = helper;
+            return this;
+        }
+
+        JlinkSpecBuilder name(String name) {
+            this.name = name;
+            return this;
+        }
+
+        JlinkSpecBuilder addModule(String module) {
+            modules.add(module);
+            return this;
+        }
+
+        JlinkSpecBuilder validatingModule(String module) {
+            this.validatingModule = module;
+            return this;
+        }
+
+        JlinkSpecBuilder expectedLocation(String location) {
+            expectedLocations.add(location);
+            return this;
+        }
+
+        JlinkSpecBuilder unexpectedLocation(String location) {
+            unexpectedLocations.add(location);
+            return this;
+        }
+
+        JlinkSpecBuilder expectedFile(String file) {
+            expectedFiles.add(file);
+            return this;
+        }
+
+        JlinkSpecBuilder extraJlinkOpt(String opt) {
+            extraJlinkOpts.add(opt);
+            return this;
+        }
     }
 
     static class FilesCapturingVisitor extends SimpleFileVisitor<Path> {
