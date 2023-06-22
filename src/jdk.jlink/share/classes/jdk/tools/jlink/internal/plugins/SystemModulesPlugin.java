@@ -177,15 +177,32 @@ public final class SystemModulesPlugin extends AbstractPlugin {
         // generate and add the SystemModuleMap and SystemModules classes
         Set<String> generated = genSystemModulesClasses(moduleInfos, out);
 
-        // TODO: Filter SystemModules classes from an earlier jmodless link
-
-        // pass through all other resources
+        // pass through all other resources other than SystemModules* and
+        // SystemModulesMap classes as we've generated them.
         in.entries()
-            .filter(data -> !data.path().endsWith("/module-info.class")
-                    && !generated.contains(data.path()))
+            .filter(data -> {
+                String path = data.path();
+                if (path.endsWith("/module-info.class") || generated.contains(path)) {
+                    return false;
+                }
+                String className = extractClassName(path);
+                if (className != null &&
+                        className.startsWith(
+                                 SYSTEM_MODULES_CLASS_PREFIX)) {
+                    return false;
+                }
+                return true;
+            })
             .forEach(data -> out.add(data));
 
         return out.build();
+    }
+
+    static String extractClassName(String path) {
+        if (!path.endsWith(".class") || !path.startsWith("/java.base/")) {
+            return null; // not a class or not java.base
+        }
+        return path.substring("/java.base/".length(), path.length() - 6 /* .class */);
     }
 
     /**
