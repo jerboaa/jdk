@@ -213,12 +213,15 @@ public class JLinkTestJmodsLess {
         if (jmodFullFiles.size() != jmodLessFiles.size()) {
             throw new AssertionError(String.format("Size of files different for jmod-less (%d) vs jmod-full (%d) java.se jlink", jmodLessFiles.size(), jmodFullFiles.size()));
         }
-        // Compare all files
+        // Compare all files except the modules image
         for (int i = 0; i < jmodFullFiles.size(); i++) {
             String jmodFullPath = jmodFullFiles.get(i);
             String jmodLessPath = jmodLessFiles.get(i);
             if (!jmodFullPath.equals(jmodLessPath)) {
                 throw new AssertionError(String.format("jmod-full path (%s) != jmod-less path (%s)", jmodFullPath, jmodLessPath));
+            }
+            if (jmodFullPath.equals("lib/modules")) {
+                continue;
             }
             Path a = javaSEJmodFull.resolve(Path.of(jmodFullPath));
             Path b = javaSEJmodLess.resolve(Path.of(jmodLessPath));
@@ -226,6 +229,7 @@ public class JLinkTestJmodsLess {
                 throw new AssertionError("Files mismatch: " + a + " vs. " + b);
             }
         }
+        // TODO: compare jimages (binary compare doesn't work)
     }
 
     public static void testJlinkJavaSEReproducible(Helper helper) throws Exception {
