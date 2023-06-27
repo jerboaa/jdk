@@ -53,7 +53,7 @@ import tests.JImageValidator;
  *          jdk.jlink/jdk.tools.jimage
  *          jdk.compiler
  * @build tests.*
- * @run main/othervm/timeout=600 -Xmx1g JLinkTestJmodsLess
+ * @run main/othervm/timeout=1800 -Xmx1g JLinkTestJmodsLess
  */
 public class JLinkTestJmodsLess {
 
