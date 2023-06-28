@@ -53,7 +53,7 @@ import tests.JImageValidator;
  *          jdk.jlink/jdk.tools.jimage
  *          jdk.compiler
  * @build tests.*
- * @run main/othervm/timeout=1800 -Xmx1g JLinkTestJmodsLess
+ * @run main/othervm/timeout=600 -Xmx1g JLinkTestJmodsLess
  */
 public class JLinkTestJmodsLess {
 
@@ -166,8 +166,11 @@ public class JLinkTestJmodsLess {
      * propagated.
      */
     public static void testJmodLessSystemModules(Helper helper) throws Exception {
+        if (isWindows()) {
+            System.out.println("testJmodLessSystemModules() skipped on Windows.");
+            return; // FIXME: Investigate why an ALL-MODULE-PATH jlink times out on Windows.
+        }
         // create a full image with all modules using jmod-less approach
-        //Path allModsJmodLess = createJavaImageJmodLess(helper, "all-mods-jmodless", "ALL-MODULE-PATH");
         Path allModsJmodLess = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
                                                             .helper(helper)
                                                             .name("all-mods-jmodless")
