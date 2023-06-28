@@ -39,6 +39,7 @@ import java.util.stream.Stream;
 import tests.Helper;
 import tests.JImageGenerator;
 import tests.JImageGenerator.JLinkTask;
+import tests.JImageHelper;
 import tests.JImageValidator;
 
 /*
@@ -158,6 +159,7 @@ public class JLinkTestJmodsLess {
                 .addMods("java.se").call().assertSuccess();
 
         compareRecursively(javaSEJmodLess, javaSEJmodFull);
+        System.out.println("testJmodLessJmodFullCompare PASSED!");
     }
 
     /*
@@ -199,6 +201,7 @@ public class JLinkTestJmodsLess {
                                 .unexpectedLocation("/java.base/jdk/internal/module/SystemModules$default.class")
                                 .validatingModule("java.base")
                                 .build());
+        System.out.println("testJmodLessSystemModules PASSED!");
     }
 
     // Visit all files in the given directories checking that they're byte-by-byte identical
@@ -232,7 +235,42 @@ public class JLinkTestJmodsLess {
                 throw new AssertionError("Files mismatch: " + a + " vs. " + b);
             }
         }
-        // TODO: compare jimages (binary compare doesn't work)
+        // Compare jimage contents by iterating its entries and comparing their
+        // paths and content bytes
+        //
+        // Note: The files aren't byte-by-byte comparable (probably due to string hashing
+        // and offset differences in container bytes)
+        Path jimageJmodLess = javaSEJmodLess.resolve(Path.of("lib")).resolve(Path.of("modules"));
+        Path jimageJmodFull = javaSEJmodFull.resolve(Path.of("lib")).resolve(Path.of("modules"));
+        List<String> jimageContentJmodLess = JImageHelper.listContents(jimageJmodLess);
+        List<String> jimageContentJmodFull = JImageHelper.listContents(jimageJmodFull);
+        if (jimageContentJmodLess.size() != jimageContentJmodFull.size()) {
+            throw new AssertionError(String.format("Size of jimage content differs for jmod-less (%d) v. jmod-full (%d)", jimageContentJmodLess.size(), jimageContentJmodFull.size()));
+        }
+        for (int i = 0; i < jimageContentJmodFull.size(); i++) {
+            if (!jimageContentJmodFull.get(i).equals(jimageContentJmodLess.get(i))) {
+                throw new AssertionError(String.format("Jimage content differs at index %d: jmod-full was: '%s' jmod-less was: '%s'",
+                                                       i,
+                                                       jimageContentJmodFull.get(i),
+                                                       jimageContentJmodLess.get(i)
+                                                       ));
+            }
+            String loc = jimageContentJmodFull.get(i);
+            if (isTreeInfoResource(loc)) {
+                // Skip container bytes as those are offsets to the content
+                // which might be different between jlinks.
+                continue;
+            }
+            byte[] resBytesFull = JImageHelper.getLocationBytes(loc, jimageJmodFull);
+            byte[] resBytesLess = JImageHelper.getLocationBytes(loc, jimageJmodLess);
+            if (resBytesFull.length != resBytesLess.length || Arrays.mismatch(resBytesFull, resBytesLess) != -1) {
+                throw new AssertionError("Content bytes mismatch for " + loc);
+            }
+        }
+    }
+
+    private static boolean isTreeInfoResource(String path) {
+        return path.startsWith("/packages") || path.startsWith("/modules");
     }
 
     public static void testJlinkJavaSEReproducible(Helper helper) throws Exception {
