@@ -112,6 +112,9 @@ public final class AddJmodResourcesPlugin extends AbstractPlugin {
         // add ourselves due to this condition. However, we want to not add
         // an old version of the resource file again.
         if (entry.type() != ResourcePoolEntry.Type.CLASS_OR_RESOURCE) {
+            if (entry.type() == ResourcePoolEntry.Type.TOP) {
+                return entry; // Handled by ReleaseInfoPlugin, nothing to do
+            }
             List<String> moduleResources = nonClassResEntries.computeIfAbsent(entry.moduleName(), a -> new ArrayList<>());
             String type = Integer.toString(entry.type().ordinal());
             String resPathWithoutMod = resPathWithoutModule(entry, platform);
@@ -185,7 +188,11 @@ public final class AddJmodResourcesPlugin extends AbstractPlugin {
 
     @Override
     public Category getType() {
-        return Category.ADDER;
+        // Ensure we run in a later stage as we need to generate
+        // SHA-512 sums for non-(class/resource) files. The jmod_resources
+        // files can be considered meta-info describing the universe we
+        // draft from.
+        return Category.METAINFO_ADDER;
     }
 
 }
