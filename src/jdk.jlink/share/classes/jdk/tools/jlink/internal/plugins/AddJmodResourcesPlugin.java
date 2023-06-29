@@ -25,10 +25,13 @@
 
 package jdk.tools.jlink.internal.plugins;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,10 +57,10 @@ public final class AddJmodResourcesPlugin extends AbstractPlugin {
     private static final String NAME = "add-jmod-resources";
     // This ought to be a package-less resource so as to not conflict with
     // packages listed in the module descriptors. Making it package-less ensures
-    // it works for any module, regardless of packages present. Used in
-    // JmodLessArchive
+    // it works for any module, regardless of packages present. This resource
+    // is being used in JmodLessArchive class
     private static final String RESPATH = "/%s/jmod_resources";
-    private static final String TYPE_FILE_FORMAT = "%s|%s";
+    private static final String TYPE_FILE_FORMAT = "%s|%s|%s";
     private final Map<String, List<String>> nonClassResEntries;
 
     public AddJmodResourcesPlugin() {
@@ -112,13 +115,32 @@ public final class AddJmodResourcesPlugin extends AbstractPlugin {
             List<String> moduleResources = nonClassResEntries.computeIfAbsent(entry.moduleName(), a -> new ArrayList<>());
             String type = Integer.toString(entry.type().ordinal());
             String resPathWithoutMod = resPathWithoutModule(entry, platform);
-            moduleResources.add(String.format(TYPE_FILE_FORMAT, type, resPathWithoutMod));
+            String sha512 = computeSha512(entry);
+            moduleResources.add(String.format(TYPE_FILE_FORMAT, type, sha512, resPathWithoutMod));
         } else if (entry.type() == ResourcePoolEntry.Type.CLASS_OR_RESOURCE &&
                 String.format(RESPATH, entry.moduleName()).equals(entry.path())) {
             // Filter /<module>/jmod_resources file which we create later
             return null;
         }
         return entry;
+    }
+
+    private String computeSha512(ResourcePoolEntry entry) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-512");
+            try (InputStream is = entry.content()) {
+                byte[] buf = new byte[1024];
+                int bytesRead = -1;
+                while ((bytesRead = is.read(buf)) != -1) {
+                    digest.update(buf, 0, bytesRead);
+                }
+            }
+            byte[] db = digest.digest();
+            HexFormat format = HexFormat.of();
+            return format.formatHex(db);
+        } catch (Exception e) {
+            throw new AssertionError("Failed to generate hash sum for " + entry.path());
+        }
     }
 
     private String resPathWithoutModule(ResourcePoolEntry entry, Platform platform) {
