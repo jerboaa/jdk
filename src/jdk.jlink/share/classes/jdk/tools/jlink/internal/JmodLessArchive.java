@@ -34,8 +34,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -119,7 +121,7 @@ public class JmodLessArchive implements Archive {
             // Add classes/resources from image module
             files.addAll(ref.open().list().map(s -> {
                 return new JmodLessFile(JmodLessArchive.this, s,
-                        Type.CLASS_OR_RESOURCE);
+                        Type.CLASS_OR_RESOURCE, null /* sha */);
             }).collect(Collectors.toList()));
         }
     }
@@ -133,8 +135,8 @@ public class JmodLessArchive implements Archive {
                 String input = new String(inStream.readAllBytes(), StandardCharsets.UTF_8);
                 files.addAll(Arrays.asList(input.split("\n")).stream()
                         .map(s -> {
-                            TypePathPair pair = mappingResource(s);
-                            return new JmodLessFile(JmodLessArchive.this, pair.resPath, pair.resType);
+                            TypePathMapping m = mappingResource(s);
+                            return new JmodLessFile(JmodLessArchive.this, m.resPath, m.resType, m.sha);
                         })
                         .filter(m -> m != null)
                         .collect(Collectors.toList()));
@@ -143,16 +145,16 @@ public class JmodLessArchive implements Archive {
     }
 
     /**
-     *  line: <int>|<path>
+     *  line: <int>|<sha>|<path>
      *
-     *  Take the integer before '|' convert it to a Type, and then use the
-     *  result to create a JmodLessFile.
+     *  Take the integer before '|' convert it to a Type. The second
+     *  token is a hash sum (sha512) of the file denoted by the third token (path).
      */
-    private static TypePathPair mappingResource(String line) {
+    private static TypePathMapping mappingResource(String line) {
         if (line.isEmpty()) {
             return null;
         }
-        String[] tokens = line.split("\\|", 2);
+        String[] tokens = line.split("\\|", 3);
         Type type = null;
         try {
             Integer typeInt = Integer.valueOf(tokens[0]);
@@ -160,15 +162,17 @@ public class JmodLessArchive implements Archive {
         } catch (NumberFormatException e) {
             throw new AssertionError(e); // must not happen
         }
-        return new TypePathPair(tokens[1], type);
+        return new TypePathMapping(tokens[1], tokens[2], type);
     }
 
-    static class TypePathPair {
+    static class TypePathMapping {
         final String resPath;
+        final String sha;
         final Type resType;
-        TypePathPair(String resPath, Type resType) {
+        TypePathMapping(String sha, String resPath, Type resType) {
             this.resPath = resPath;
             this.resType = resType;
+            this.sha = Objects.requireNonNull(sha);
         }
     }
 
@@ -178,15 +182,19 @@ public class JmodLessArchive implements Archive {
         final String resPath;
         final Archive.Entry.EntryType resType;
         final Archive archive;
+        final String sha; // Checksum for non-resource files
 
-        JmodLessFile(Archive archive, String resPath, Type resType) {
+        JmodLessFile(Archive archive, String resPath, Type resType, String sha) {
             this.resPath = resPath;
             this.resType = toEntryType(resType);
             this.archive = archive;
+            this.sha = sha;
         }
 
         Entry toEntry() {
             return new Entry(archive, resPath, resPath, resType) {
+
+                private boolean warningProduced = false;
 
                 @Override
                 public long size() {
@@ -195,7 +203,10 @@ public class JmodLessArchive implements Archive {
                             // Read from the base JDK image.
                             return Files.size(BASE.resolve(resPath));
                         } else {
-                            // Read from the module image.
+                            // Read from the module image. This works, because
+                            // the underlying base path is a JrtPath with the
+                            // JrtFileSystem underneath which is able to handle
+                            // this size query
                             return Files.size(archive.getPath().resolve(resPath));
                         }
                     } catch (IOException e) {
@@ -207,12 +218,36 @@ public class JmodLessArchive implements Archive {
                 public InputStream stream() throws IOException {
                     if (resType != Archive.Entry.EntryType.CLASS_OR_RESOURCE) {
                         // Read from the base JDK image.
-                        return Files.newInputStream(BASE.resolve(resPath));
+                        Path path = BASE.resolve(resPath);
+                        if (shaSumMismatch(path, sha) && !warningProduced) {
+                            System.err.printf("WARNING: %s has been modified. Please double check!%n", path.toString());
+                            warningProduced = true;
+                        }
+                        return Files.newInputStream(path);
                     } else {
                         // Read from the module image.
                         String module = archive.moduleName();
                         ModuleReference mRef = ModuleFinder.ofSystem().find(module).orElseThrow();
                         return mRef.open().open(resPath).orElseThrow();
+                    }
+                }
+
+                static boolean shaSumMismatch(Path res, String expectedSha) {
+                    try {
+                        HexFormat format = HexFormat.of();
+                        byte[] expected = format.parseHex(expectedSha);
+                        MessageDigest digest = MessageDigest.getInstance("SHA-512");
+                        try (InputStream is = Files.newInputStream(res)) {
+                            byte[] buf = new byte[1024];
+                            int readBytes = -1;
+                            while ((readBytes = is.read(buf)) != -1) {
+                                digest.update(buf, 0, readBytes);
+                            }
+                        }
+                        byte[] actual = digest.digest();
+                        return !MessageDigest.isEqual(expected, actual);
+                    } catch (Exception e) {
+                        throw new AssertionError("SHA-512 sum check failed!", e);
                     }
                 }
 
