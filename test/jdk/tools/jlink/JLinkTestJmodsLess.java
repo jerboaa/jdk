@@ -23,6 +23,10 @@
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +37,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -75,6 +81,58 @@ public class JLinkTestJmodsLess {
         testSaveJlinkOptions(helper);
         testJmodLessSystemModules(helper);
         testJmodLessJmodFullCompare(helper);
+        testModifiedFilesWarning(helper);
+    }
+
+    public static void testModifiedFilesWarning(Helper helper) throws Exception {
+        Path initialImage = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+                .name("java-base-jlink-with-mod")
+                .addModule("java.base")
+                .addModule("jdk.jlink")
+                .validatingModule("java.base")
+                .helper(helper)
+                .build());
+
+        // modify net.properties config file
+        Path netPropertiesFile = initialImage.resolve("conf").resolve("net.properties");
+        Properties props = new Properties();
+        try (InputStream is = Files.newInputStream(netPropertiesFile)) {
+            props.load(is);
+        }
+        String prevVal = (String)props.put("java.net.useSystemProxies", Boolean.TRUE.toString());
+        if (prevVal == null || Boolean.getBoolean(prevVal) != false) {
+            throw new AssertionError("Expected previous value to be false!");
+        }
+        try (OutputStream out = Files.newOutputStream(netPropertiesFile)) {
+            props.store(out, "Modified net.properties file!");
+        }
+
+        CapturingHandler handler = new CapturingHandler();
+        jlinkUsingImage(new JlinkSpecBuilder()
+                                .helper(helper)
+                                .imagePath(initialImage)
+                                .name("java-base-jlink-with-mod-target")
+                                .addModule("java.base")
+                                .validatingModule("java.base")
+                                .build(), handler);
+        // verify we get the warning message
+        expectMatch(netPropertiesFile.toString(), handler.stdErr());
+        expectMatch("WARNING: ", handler.stdErr());
+        expectMatch("has been modified", handler.stdErr());
+    }
+
+    private static void expectMatch(String string, List<String> lines) {
+        boolean foundMatch = false;
+        for (String line: lines) {
+            if (line.contains(string)) {
+                foundMatch = true;
+                break;
+            }
+        }
+        if (!foundMatch) {
+            String content = lines.stream().collect(Collectors.joining(System.lineSeparator()));
+            throw new AssertionError(String.format("Expected to find %s in %s", string, content));
+        }
     }
 
     public static void testAddOptions(Helper helper) throws Exception {
@@ -449,6 +507,17 @@ public class JLinkTestJmodsLess {
     }
 
     private static Path jlinkUsingImage(JlinkSpec spec) throws Exception {
+        StdErrOutHandler handler = new StdErrOutHandler() {
+
+            @Override
+            public void handleDefault(BufferedReader stdout, BufferedReader stderr) {
+                // nothing
+            }
+        };
+        return jlinkUsingImage(spec, handler);
+    }
+
+    private static Path jlinkUsingImage(JlinkSpec spec, StdErrOutHandler handler) throws Exception {
         String jmodLessGeneratedImage = "target-jmodless-" + spec.getName();
         Path targetImageDir = spec.getHelper().createNewImageDir(jmodLessGeneratedImage);
         Path targetJlink = spec.getImageToUse().resolve("bin").resolve(getJlink());
@@ -474,10 +543,11 @@ public class JLinkTestJmodsLess {
         if (status != 0) {
             // modules we asked for should be available in the image we used for jlinking
             if (DEBUG) {
-                readAndPrintReaders(errReader, outReader);
+                handler.handleError(outReader, errReader);
             }
             throw new AssertionError("Expected jlink to pass given a jmodless image");
         }
+        handler.handleDefault(outReader, errReader);
 
         // validate the resulting image; Includes running 'java -version'
         JImageValidator validator = new JImageValidator(spec.getValidatingModule(), spec.getExpectedLocations(),
@@ -717,6 +787,70 @@ public class JLinkTestJmodsLess {
         JlinkSpecBuilder extraJlinkOpt(String opt) {
             extraJlinkOpts.add(opt);
             return this;
+        }
+    }
+
+    static abstract class StdErrOutHandler {
+        final Consumer<BufferedReader> stdoutF;
+        final Consumer<BufferedReader> stderrF;
+
+        StdErrOutHandler() {
+            this(StdErrOutHandler::defaultStdPrint, StdErrOutHandler::defaultErrPrint);
+        }
+
+        StdErrOutHandler(Consumer<BufferedReader> stdoutF, Consumer<BufferedReader> stderrF) {
+            this.stdoutF = stdoutF;
+            this.stderrF = stderrF;
+        }
+
+        public void handleError(BufferedReader stdout, BufferedReader stderr) {
+            this.stdoutF.accept(stdout);
+            this.stderrF.accept(stderr);
+        }
+
+        public abstract void handleDefault(BufferedReader stdout, BufferedReader stderr);
+
+        static void defaultStdPrint(BufferedReader r) {
+            defaultPrint(System.out, r, "");
+        }
+
+        static void defaultErrPrint(BufferedReader r) {
+            defaultPrint(System.err, r, "error ");
+        }
+
+        static void defaultPrint(PrintStream ps, BufferedReader r, String s) {
+            ps.format("Process %soutput:%n", s);
+            r.lines().forEach(ps::println);
+        }
+    }
+
+    static class CapturingHandler extends StdErrOutHandler {
+
+        private final List<String> stdout = new ArrayList<>();
+        private final List<String> stderr = new ArrayList<>();
+
+        @Override
+        public void handleDefault(BufferedReader stdout, BufferedReader stderr) {
+            try (stdout; stderr) {
+                String line = null;
+                while ((line = stdout.readLine()) != null) {
+                    this.stdout.add(line);
+                }
+                line = null;
+                while ((line = stderr.readLine()) != null) {
+                    this.stderr.add(line + "\n");
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        public List<String> stdOut() {
+            return stdout;
+        }
+
+        public List<String> stdErr() {
+            return stderr;
         }
     }
 
