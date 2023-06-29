@@ -168,31 +168,26 @@ public class JLinkTestJmodsLess {
      * propagated.
      */
     public static void testJmodLessSystemModules(Helper helper) throws Exception {
-        if (isWindows()) {
-            System.out.println("testJmodLessSystemModules() skipped on Windows.");
-            return; // FIXME: Investigate why an ALL-MODULE-PATH jlink times out on Windows.
-        }
-        // create a full image with all modules using jmod-less approach
-        Path allModsJmodLess = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+        // create an image with a module containing a main entrypoint (jdk.httpserver),
+        // thus producing the SystemModules$0.class. Add jdk.jcmd as a module which
+        // isn't resolved by default, so as to generate SystemModules$default.class
+        Path javaseJmodless = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
                                                             .helper(helper)
-                                                            .name("all-mods-jmodless")
-                                                            .addModule("ALL-MODULE-PATH")
+                                                            .name("httpserver-jlink-jmodless-derived")
+                                                            .addModule("jdk.httpserver")
+                                                            .addModule("jdk.jcmd")
+                                                            .addModule("jdk.jlink")
                                                             .validatingModule("java.base")
                                                             .build());
-        // Derive another jmodless image, including java.se and jdk.jlink.
-        Path javaseJmodless = jlinkUsingImage(new JlinkSpecBuilder()
-                                                    .helper(helper)
-                                                    .imagePath(allModsJmodLess)
-                                                    .name("javase-jlink-jmodless-derived")
-                                                    .addModule("java.se")
-                                                    .addModule("jdk.jlink")
-                                                    .validatingModule("java.base")
-                                                    .build());
-        // Finally attempt another jmodless link reducing java.se to java.base
+        // Verify that SystemModules$0.class etc. are there
+        JImageValidator.validate(javaseJmodless.resolve("lib").resolve("modules"),
+                                    List.of("/java.base/jdk/internal/module/SystemModules$default.class",
+                                            "/java.base/jdk/internal/module/SystemModules$0.class"), Collections.emptyList());
+        // Finally attempt another jmodless link reducing modules to java.base only
         jlinkUsingImage(new JlinkSpecBuilder()
                                 .helper(helper)
                                 .imagePath(javaseJmodless)
-                                .name("java.base-from-java.se-derived")
+                                .name("java.base-from-jdk-httpserver-derived")
                                 .addModule("java.base")
                                 .expectedLocation("/java.base/jdk/internal/module/SystemModulesMap.class")
                                 .expectedLocation("/java.base/jdk/internal/module/SystemModules.class")
