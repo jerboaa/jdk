@@ -145,11 +145,6 @@ public class PackagedModulesVsJmodLessTest extends AbstractJmodLessTest {
     }
 
     private static void handleFileMismatch(Path a, Path b) {
-        if (isWindows()) {
-            // FIXME: Investigate those mismatches on Windows
-            System.err.println("File mismatch: " + a + " vs. " + b);
-            return;
-        }
         throw new AssertionError("Files mismatch: " + a + " vs. " + b);
     }
 
