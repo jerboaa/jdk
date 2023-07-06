@@ -21,15 +21,13 @@
  * questions.
  */
 
-import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
+import jdk.test.lib.process.OutputAnalyzer;
 import tests.Helper;
 
 /*
@@ -82,19 +80,13 @@ public class SaveJlinkOptsTest extends AbstractJmodLessTest {
     }
 
     private void verifyVendorVersion(Path finalImage, String vendorVersion) throws Exception {
-        Process p = runJavaCmd(finalImage, List.of("--version"));
-        BufferedReader buf = p.inputReader();
-        List<String> outLines = new ArrayList<>();
-        try (Stream<String> lines = buf.lines()) {
-            if (!lines.anyMatch(l -> {
-                    outLines.add(l);
-                    return l.contains(vendorVersion); }
-            )) {
-                if (DEBUG) {
-                    System.err.println(outLines.stream().collect(Collectors.joining("\n")));
-                }
-                throw new AssertionError("Expected vendor version " + vendorVersion + " in jlinked image.");
+        OutputAnalyzer out = runJavaCmd(finalImage, List.of("--version"));
+        String stdOut = out.getStdout();
+        if (!stdOut.contains(vendorVersion)) {
+            if (DEBUG) {
+                System.err.println(stdOut);
             }
+            throw new AssertionError("Expected vendor version '" + vendorVersion + "' in jlinked image.");
         }
     }
 
