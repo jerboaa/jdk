@@ -33,6 +33,8 @@ import static java.lang.constant.ConstantDescs.CD_boolean;
 import static java.lang.constant.ConstantDescs.CD_byte;
 import static java.lang.constant.ConstantDescs.CD_int;
 import static java.lang.constant.ConstantDescs.CD_void;
+import static java.lang.constant.ConstantDescs.INIT_NAME;
+import static java.lang.constant.ConstantDescs.MTD_void;
 import static jdk.internal.classfile.Classfile.ACC_FINAL;
 import static jdk.internal.classfile.Classfile.ACC_PUBLIC;
 import static jdk.internal.classfile.Classfile.ACC_STATIC;
