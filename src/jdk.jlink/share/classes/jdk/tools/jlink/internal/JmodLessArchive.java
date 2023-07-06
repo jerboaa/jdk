@@ -121,7 +121,7 @@ public class JmodLessArchive implements Archive {
             // Add classes/resources from image module
             files.addAll(ref.open().list().map(s -> {
                 return new JmodLessFile(JmodLessArchive.this, s,
-                        Type.CLASS_OR_RESOURCE, null /* sha */);
+                        Type.CLASS_OR_RESOURCE, null /* sha */, false /* symlink */);
             }).collect(Collectors.toList()));
         }
     }
@@ -136,7 +136,7 @@ public class JmodLessArchive implements Archive {
                 files.addAll(Arrays.asList(input.split("\n")).stream()
                         .map(s -> {
                             TypePathMapping m = mappingResource(s);
-                            return new JmodLessFile(JmodLessArchive.this, m.resPath, m.resType, m.sha);
+                            return new JmodLessFile(JmodLessArchive.this, m.resPath, m.resType, m.sha, m.symlink);
                         })
                         .filter(m -> m != null)
                         .collect(Collectors.toList()));
@@ -145,34 +145,43 @@ public class JmodLessArchive implements Archive {
     }
 
     /**
-     *  line: <int>|<sha>|<path>
+     *  line: <int>|<int>|<sha>|<path>
      *
      *  Take the integer before '|' convert it to a Type. The second
-     *  token is a hash sum (sha512) of the file denoted by the third token (path).
+     *  token is an integer representing symlinks (or not). The third token is
+     *  a hash sum (sha512) of the file denoted by the fourth token (path).
      */
     private static TypePathMapping mappingResource(String line) {
         if (line.isEmpty()) {
             return null;
         }
-        String[] tokens = line.split("\\|", 3);
+        String[] tokens = line.split("\\|", 4);
         Type type = null;
+        int symlinkNum = -1;
         try {
             Integer typeInt = Integer.valueOf(tokens[0]);
             type = Type.fromOrdinal(typeInt);
+            symlinkNum = Integer.valueOf(tokens[1]);
         } catch (NumberFormatException e) {
             throw new AssertionError(e); // must not happen
         }
-        return new TypePathMapping(tokens[1], tokens[2], type);
+        if (symlinkNum < 0 || symlinkNum > 1) {
+            throw new IllegalStateException("Symlink designator out of range [0,1] got: " + symlinkNum);
+        }
+        boolean isSymlink = symlinkNum > 0;
+        return new TypePathMapping(tokens[2], tokens[3], type, isSymlink);
     }
 
     static class TypePathMapping {
         final String resPath;
         final String sha;
         final Type resType;
-        TypePathMapping(String sha, String resPath, Type resType) {
+        final boolean symlink;
+        TypePathMapping(String sha, String resPath, Type resType, boolean symlink) {
             this.resPath = resPath;
             this.resType = resType;
             this.sha = Objects.requireNonNull(sha);
+            this.symlink = symlink;
         }
     }
 
@@ -183,12 +192,14 @@ public class JmodLessArchive implements Archive {
         final Archive.Entry.EntryType resType;
         final Archive archive;
         final String sha; // Checksum for non-resource files
+        final boolean symlink;
 
-        JmodLessFile(Archive archive, String resPath, Type resType, String sha) {
+        JmodLessFile(Archive archive, String resPath, Type resType, String sha, boolean symlink) {
             this.resPath = resPath;
             this.resType = toEntryType(resType);
             this.archive = archive;
             this.sha = sha;
+            this.symlink = symlink;
         }
 
         Entry toEntry() {
@@ -200,7 +211,11 @@ public class JmodLessArchive implements Archive {
                 public long size() {
                     try {
                         if (resType != Archive.Entry.EntryType.CLASS_OR_RESOURCE) {
-                            // Read from the base JDK image.
+                            // Read from the base JDK image, special casing
+                            // symlinks, which have the link target in the sha field
+                            if (symlink) {
+                                return Files.size(BASE.resolve(sha));
+                            }
                             return Files.size(BASE.resolve(resPath));
                         } else {
                             // Read from the module image. This works, because
@@ -219,9 +234,13 @@ public class JmodLessArchive implements Archive {
                     if (resType != Archive.Entry.EntryType.CLASS_OR_RESOURCE) {
                         // Read from the base JDK image.
                         Path path = BASE.resolve(resPath);
-                        if (shaSumMismatch(path, sha) && !warningProduced) {
+                        if (shaSumMismatch(path, sha, symlink) && !warningProduced) {
                             System.err.printf("WARNING: %s has been modified. Please double check!%n", path.toString());
                             warningProduced = true;
+                        }
+                        if (symlink) {
+                            path = BASE.resolve(sha);
+                            return Files.newInputStream(path);
                         }
                         return Files.newInputStream(path);
                     } else {
@@ -232,7 +251,11 @@ public class JmodLessArchive implements Archive {
                     }
                 }
 
-                static boolean shaSumMismatch(Path res, String expectedSha) {
+                static boolean shaSumMismatch(Path res, String expectedSha, boolean isSymlink) {
+                    if (isSymlink) {
+                        return false;
+                    }
+                    // handle non-symlink resources
                     try {
                         HexFormat format = HexFormat.of();
                         byte[] expected = format.parseHex(expectedSha);
