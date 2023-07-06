@@ -21,31 +21,28 @@
  * questions.
  */
 
-import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Properties;
-import java.util.stream.Collectors;
+import java.util.Scanner;
 
+import jdk.test.lib.process.OutputAnalyzer;
 import tests.Helper;
 
 /*
  * @test
  * @summary Verify warnings are being produced when jlinking in jmod-less mode and files have been changed
  * @requires (vm.compMode != "Xcomp" & os.maxMemory >= 2g)
- * @library ../../lib
+ * @library ../../lib /test/lib
  * @modules java.base/jdk.internal.jimage
  *          jdk.jlink/jdk.tools.jlink.internal
  *          jdk.jlink/jdk.tools.jlink.plugin
  *          jdk.jlink/jdk.tools.jimage
  *          jdk.jdeps/com.sun.tools.classfile
- * @build tests.*
+ * @build tests.* jdk.test.lib.process.OutputAnalyzer
+ *        jdk.test.lib.process.ProcessTools
  * @run main/othervm -Xmx1g ModifiedFilesWarningTest
  */
 public class ModifiedFilesWarningTest extends AbstractJmodLessTest {
@@ -93,47 +90,34 @@ public class ModifiedFilesWarningTest extends AbstractJmodLessTest {
         expectMatch("has been modified", handler.stdErr());
     }
 
-    private static void expectMatch(String string, List<String> lines) {
+    private static void expectMatch(String string, String lines) {
         boolean foundMatch = false;
-        for (String line: lines) {
-            if (line.contains(string)) {
-                foundMatch = true;
-                break;
+        try (Scanner lineScan = new Scanner(lines)) {
+            String line;
+            while (lineScan.hasNextLine()) {
+                line = lineScan.nextLine();
+                if (line.contains(string)) {
+                    foundMatch = true;
+                    break;
+                }
             }
         }
         if (!foundMatch) {
-            String content = lines.stream().collect(Collectors.joining(System.lineSeparator()));
-            throw new AssertionError(String.format("Expected to find '%s' in '%s'", string, content));
+            throw new AssertionError(String.format("Expected to find '%s' in '%s'", string, lines));
         }
     }
 
-    static class CapturingHandler extends StdErrOutHandler {
+    static class CapturingHandler extends OutputAnalyzerHandler {
 
-        private final List<String> stdout = new ArrayList<>();
-        private final List<String> stderr = new ArrayList<>();
+        private OutputAnalyzer output;
+
+        public String stdErr() {
+            return output.getStderr();
+        }
 
         @Override
-        public void handleDefault(BufferedReader stdout, BufferedReader stderr) {
-            try (stdout; stderr) {
-                String line = null;
-                while ((line = stdout.readLine()) != null) {
-                    this.stdout.add(line);
-                }
-                line = null;
-                while ((line = stderr.readLine()) != null) {
-                    this.stderr.add(line + "\n");
-                }
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }
-
-        public List<String> stdOut() {
-            return stdout;
-        }
-
-        public List<String> stdErr() {
-            return stderr;
+        public void handleAnalyzer(OutputAnalyzer out) {
+            this.output = out;
         }
     }
 }

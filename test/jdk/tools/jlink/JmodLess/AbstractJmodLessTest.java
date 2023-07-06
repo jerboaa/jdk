@@ -22,16 +22,16 @@
  */
 
 import java.io.BufferedReader;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import jdk.test.lib.process.OutputAnalyzer;
+import jdk.test.lib.process.ProcessTools;
 import tests.Helper;
 import tests.JImageGenerator;
 import tests.JImageGenerator.JLinkTask;
@@ -116,17 +116,10 @@ public abstract class AbstractJmodLessTest {
     }
 
     protected Path jlinkUsingImage(JlinkSpec spec) throws Exception {
-        StdErrOutHandler handler = new StdErrOutHandler() {
-
-            @Override
-            public void handleDefault(BufferedReader stdout, BufferedReader stderr) {
-                // nothing
-            }
-        };
-        return jlinkUsingImage(spec, handler);
+        return jlinkUsingImage(spec, new NoopOutputAnalyzerHandler());
     }
 
-    protected Path jlinkUsingImage(JlinkSpec spec, StdErrOutHandler handler) throws Exception {
+    protected Path jlinkUsingImage(JlinkSpec spec, OutputAnalyzerHandler handler) throws Exception {
         String jmodLessGeneratedImage = "target-jmodless-" + spec.getName();
         Path targetImageDir = spec.getHelper().createNewImageDir(jmodLessGeneratedImage);
         Path targetJlink = spec.getImageToUse().resolve("bin").resolve(getJlink());
@@ -144,19 +137,22 @@ public abstract class AbstractJmodLessTest {
         jlinkCmd = Collections.unmodifiableList(jlinkCmd); // freeze
         System.out.println("DEBUG: jmod-less jlink command: " + jlinkCmd.stream().collect(
                                                     Collectors.joining(" ")));
-        ProcessBuilder builder = new ProcessBuilder(jlinkCmd);
-        Process p = builder.start();
-        BufferedReader errReader = p.errorReader();
-        BufferedReader outReader = p.inputReader();
-        int status = p.waitFor();
-        if (status != 0) {
-            // modules we asked for should be available in the image we used for jlinking
+        OutputAnalyzer analyzer = null;
+        try {
+            analyzer = ProcessTools.executeProcess(jlinkCmd.toArray(new String[0]));
+        } catch (Throwable t) {
+            throw new AssertionError("Executing process failed!", t);
+        }
+        if (analyzer.getExitValue() != 0) {
             if (DEBUG) {
-                handler.handleError(outReader, errReader);
+                System.err.println("Process stdout was: ");
+                System.err.println(analyzer.getStdout());
+                System.err.println("Process stderr was: ");
+                System.err.println(analyzer.getStderr());
             }
             throw new AssertionError("Expected jlink to pass given a jmodless image");
         }
-        handler.handleDefault(outReader, errReader);
+        handler.handleAnalyzer(analyzer); // Give tests a chance to process in/output
 
         // validate the resulting image; Includes running 'java -version'
         JImageValidator validator = new JImageValidator(spec.getValidatingModule(), spec.getExpectedLocations(),
@@ -447,37 +443,18 @@ public abstract class AbstractJmodLessTest {
         }
     }
 
-    static abstract class StdErrOutHandler {
-        final Consumer<BufferedReader> stdoutF;
-        final Consumer<BufferedReader> stderrF;
+    static abstract class OutputAnalyzerHandler {
 
-        StdErrOutHandler() {
-            this(StdErrOutHandler::defaultStdPrint, StdErrOutHandler::defaultErrPrint);
+        public abstract void handleAnalyzer(OutputAnalyzer out);
+
+    }
+
+    static class NoopOutputAnalyzerHandler extends OutputAnalyzerHandler {
+
+        @Override
+        public void handleAnalyzer(OutputAnalyzer out) {
+            // nothing
         }
 
-        StdErrOutHandler(Consumer<BufferedReader> stdoutF, Consumer<BufferedReader> stderrF) {
-            this.stdoutF = stdoutF;
-            this.stderrF = stderrF;
-        }
-
-        public void handleError(BufferedReader stdout, BufferedReader stderr) {
-            this.stdoutF.accept(stdout);
-            this.stderrF.accept(stderr);
-        }
-
-        public abstract void handleDefault(BufferedReader stdout, BufferedReader stderr);
-
-        static void defaultStdPrint(BufferedReader r) {
-            defaultPrint(System.out, r, "");
-        }
-
-        static void defaultErrPrint(BufferedReader r) {
-            defaultPrint(System.err, r, "error ");
-        }
-
-        static void defaultPrint(PrintStream ps, BufferedReader r, String s) {
-            ps.format("Process %soutput:%n", s);
-            r.lines().forEach(ps::println);
-        }
     }
 }
