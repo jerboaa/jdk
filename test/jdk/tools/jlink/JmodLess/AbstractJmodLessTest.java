@@ -21,13 +21,13 @@
  * questions.
  */
 
-import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Scanner;
 import java.util.stream.Collectors;
 
 import jdk.test.lib.process.OutputAnalyzer;
@@ -63,16 +63,15 @@ public abstract class AbstractJmodLessTest {
      */
     protected void verifyListModules(Path image,
             List<String> expectedModules) throws Exception {
-        Process javaListMods = runJavaCmd(image, List.of("--list-modules"));
-        BufferedReader outReader = javaListMods.inputReader();
-        List<String> actual = parseListMods(outReader);
+        OutputAnalyzer out = runJavaCmd(image, List.of("--list-modules"));
+        List<String> actual = parseListMods(out.getStdout());
         Collections.sort(actual);
         if (!expectedModules.equals(actual)) {
             throw new AssertionError("Different modules! Expected " + expectedModules + " got: " + actual);
         }
     }
 
-    protected Process runJavaCmd(Path image, List<String> options) throws Exception {
+    protected OutputAnalyzer runJavaCmd(Path image, List<String> options) throws Exception {
         Path targetJava = image.resolve("bin").resolve(getJava());
         List<String> cmd = new ArrayList<>();
         cmd.add(targetJava.toString());
@@ -80,19 +79,23 @@ public abstract class AbstractJmodLessTest {
             cmd.add(opt);
         }
         List<String> javaCmd = Collections.unmodifiableList(cmd);
-        ProcessBuilder builder = new ProcessBuilder(javaCmd);
-        Process p = builder.start();
-        int status = p.waitFor();
-        if (status != 0) {
+        OutputAnalyzer out;
+        try {
+            out = ProcessTools.executeCommand(javaCmd.toArray(new String[0]));
+        } catch (Throwable e) {
+            throw new Exception("Process failed to execute", e);
+        }
+        if (out.getExitValue() != 0) {
             if (DEBUG) {
-                BufferedReader errReader = p.errorReader();
-                BufferedReader outReader = p.inputReader();
-                readAndPrintReaders(errReader, outReader);
+                System.err.println("Process stdout was: ");
+                System.err.println(out.getStdout());
+                System.err.println("Process stderr was: ");
+                System.err.println(out.getStderr());
             }
             throw new AssertionError("'" + javaCmd.stream().collect(Collectors.joining(" ")) + "'"
                     + " expected to succeed!");
         }
-        return p;
+        return out;
     }
 
     protected Path createJavaImageJmodLess(BaseJlinkSpec baseSpec) throws Exception {
@@ -191,21 +194,17 @@ public abstract class AbstractJmodLessTest {
         return jlinkJmodlessImage;
     }
 
-    private List<String> parseListMods(BufferedReader outReader) throws Exception {
-        try (outReader) {
-            return outReader.lines()
-                    .map(a -> { return a.split("@", 2)[0];})
-                    .filter(a -> !a.isBlank())
-                    .collect(Collectors.toList());
+    private List<String> parseListMods(String output) throws Exception {
+        List<String> outputLines = new ArrayList<>();
+        try (Scanner lineScan = new Scanner(output)) {
+            while (lineScan.hasNextLine()) {
+                outputLines.add(lineScan.nextLine());
+            }
         }
-    }
-
-    private void readAndPrintReaders(BufferedReader errReader,
-            BufferedReader outReader) {
-        System.err.println("Process error output:");
-        errReader.lines().forEach(System.err::println);
-        System.out.println("Process standard output:");
-        outReader.lines().forEach(System.out::println);
+        return outputLines.stream()
+                .map(a -> { return a.split("@", 2)[0];})
+                .filter(a -> !a.isBlank())
+                .collect(Collectors.toList());
     }
 
     private String getJlink() {
