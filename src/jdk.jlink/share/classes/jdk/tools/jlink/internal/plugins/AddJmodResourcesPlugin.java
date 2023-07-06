@@ -52,6 +52,8 @@ import jdk.tools.jlink.plugin.ResourcePoolModule;
  */
 public final class AddJmodResourcesPlugin extends AbstractPlugin {
 
+    private static final int SYMLINKED_RES = 1;
+    private static final int REGULAR_RES = 0;
     private static final String BIN_DIRNAME = "bin";
     private static final String LIB_DIRNAME = "lib";
     private static final String NAME = "add-jmod-resources";
@@ -60,7 +62,20 @@ public final class AddJmodResourcesPlugin extends AbstractPlugin {
     // it works for any module, regardless of packages present. This resource
     // is being used in JmodLessArchive class
     private static final String RESPATH = "/%s/jmod_resources";
-    private static final String TYPE_FILE_FORMAT = "%s|%s|%s";
+
+    // Type file format:
+    // '<type>|{0,1}|<sha-sum>|<file-path>'
+    //   (1)    (2)      (3)      (4)
+    //
+    // Where fields are:
+    //
+    // (1) The resource type as specified by ResourcePoolEntry.type()
+    // (2) Symlink designator. 0 => regular resource, 1 => symlinked resource
+    // (3) The SHA-512 sum of the resources' content. The link to the target
+    //     for symlinked resources.
+    // (4) The relative file path of the resource
+    private static final String TYPE_FILE_FORMAT = "%d|%d|%s|%s";
+
     private final Map<String, List<String>> nonClassResEntries;
 
     public AddJmodResourcesPlugin() {
@@ -116,10 +131,11 @@ public final class AddJmodResourcesPlugin extends AbstractPlugin {
                 return entry; // Handled by ReleaseInfoPlugin, nothing to do
             }
             List<String> moduleResources = nonClassResEntries.computeIfAbsent(entry.moduleName(), a -> new ArrayList<>());
-            String type = Integer.toString(entry.type().ordinal());
+            int type = entry.type().ordinal();
+            int isSymlink = entry.linkedTarget() != null ? SYMLINKED_RES : REGULAR_RES;
             String resPathWithoutMod = resPathWithoutModule(entry, platform);
-            String sha512 = computeSha512(entry);
-            moduleResources.add(String.format(TYPE_FILE_FORMAT, type, sha512, resPathWithoutMod));
+            String sha512 = computeSha512(entry, platform);
+            moduleResources.add(String.format(TYPE_FILE_FORMAT, type, isSymlink, sha512, resPathWithoutMod));
         } else if (entry.type() == ResourcePoolEntry.Type.CLASS_OR_RESOURCE &&
                 String.format(RESPATH, entry.moduleName()).equals(entry.path())) {
             // Filter /<module>/jmod_resources file which we create later
@@ -128,19 +144,24 @@ public final class AddJmodResourcesPlugin extends AbstractPlugin {
         return entry;
     }
 
-    private String computeSha512(ResourcePoolEntry entry) {
+    private String computeSha512(ResourcePoolEntry entry, Platform platform) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-512");
-            try (InputStream is = entry.content()) {
-                byte[] buf = new byte[1024];
-                int bytesRead = -1;
-                while ((bytesRead = is.read(buf)) != -1) {
-                    digest.update(buf, 0, bytesRead);
+            if (entry.linkedTarget() != null) {
+                // Symlinks don't have a hash sum, but a link to the target instead
+                return resPathWithoutModule(entry.linkedTarget(), platform);
+            } else {
+                MessageDigest digest = MessageDigest.getInstance("SHA-512");
+                try (InputStream is = entry.content()) {
+                    byte[] buf = new byte[1024];
+                    int bytesRead = -1;
+                    while ((bytesRead = is.read(buf)) != -1) {
+                        digest.update(buf, 0, bytesRead);
+                    }
                 }
+                byte[] db = digest.digest();
+                HexFormat format = HexFormat.of();
+                return format.formatHex(db);
             }
-            byte[] db = digest.digest();
-            HexFormat format = HexFormat.of();
-            return format.formatHex(db);
         } catch (Exception e) {
             throw new AssertionError("Failed to generate hash sum for " + entry.path());
         }

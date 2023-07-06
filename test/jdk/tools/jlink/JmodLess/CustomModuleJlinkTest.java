@@ -31,13 +31,14 @@ import tests.Helper;
  * @test
  * @summary Test jmod-less jlink with a custom module
  * @requires (vm.compMode != "Xcomp" & os.maxMemory >= 2g)
- * @library ../../lib
+ * @library ../../lib /test/lib
  * @modules java.base/jdk.internal.jimage
  *          jdk.jlink/jdk.tools.jlink.internal
  *          jdk.jlink/jdk.tools.jlink.plugin
  *          jdk.jlink/jdk.tools.jimage
  *          jdk.jdeps/com.sun.tools.classfile
- * @build tests.*
+ * @build tests.* jdk.test.lib.process.OutputAnalyzer
+ *        jdk.test.lib.process.ProcessTools
  * @run main/othervm -Xmx1g CustomModuleJlinkTest
  */
 public class CustomModuleJlinkTest extends AbstractJmodLessTest {
