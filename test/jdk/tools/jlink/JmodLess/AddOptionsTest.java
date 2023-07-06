@@ -21,11 +21,11 @@
  * questions.
  */
 
-import java.io.BufferedReader;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.stream.Stream;
+import java.util.Scanner;
 
+import jdk.test.lib.process.OutputAnalyzer;
 import tests.Helper;
 
 /*
@@ -64,12 +64,19 @@ public class AddOptionsTest extends AbstractJmodLessTest {
     }
 
     private void verifyParallelGCInUse(Path finalImage) throws Exception {
-        Process p = runJavaCmd(finalImage, List.of("--version"));
-        BufferedReader buf = p.errorReader();
-        try (Stream<String> lines = buf.lines()) {
-            if (!lines.anyMatch(l -> l.endsWith("Using Parallel"))) {
-                throw new AssertionError("Expected Parallel GC in place for jlinked image");
+        OutputAnalyzer analyzer = runJavaCmd(finalImage, List.of("--version"));
+        boolean foundMatch = false;
+        try (Scanner lineScan = new Scanner(analyzer.getStderr())) {
+            while (lineScan.hasNextLine()) {
+                String line = lineScan.nextLine();
+                if (line.endsWith("Using Parallel")) {
+                    foundMatch = true;
+                    break;
+                }
             }
+        }
+        if (!foundMatch) {
+            throw new AssertionError("Expected Parallel GC in place for jlinked image");
         }
     }
 
