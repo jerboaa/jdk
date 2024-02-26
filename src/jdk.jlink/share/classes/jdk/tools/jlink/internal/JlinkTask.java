@@ -28,7 +28,6 @@ import static jdk.tools.jlink.internal.TaskHelper.JLINK_BUNDLE;
 
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
@@ -74,8 +73,6 @@ import jdk.tools.jlink.internal.Jlink.PluginsConfiguration;
 import jdk.tools.jlink.internal.TaskHelper.BadArgs;
 import jdk.tools.jlink.internal.TaskHelper.Option;
 import jdk.tools.jlink.internal.TaskHelper.OptionsHelper;
-import jdk.tools.jlink.internal.plugins.LegalNoticeFilePlugin;
-import jdk.tools.jlink.plugin.Plugin;
 import jdk.tools.jlink.plugin.PluginException;
 
 /**
@@ -91,17 +88,7 @@ public class JlinkTask {
 
     private static final TaskHelper taskHelper
             = new TaskHelper(JLINK_BUNDLE);
-
-    // Flag for scratch task validation in run-time image mode
-    private final boolean isScratch;
-
-    public JlinkTask() {
-        this(false);
-    }
-
-    private JlinkTask(boolean isScratch) {
-        this.isScratch = isScratch;
-    }
+    private static final String JLINK_MOD_NAME = "jdk.jlink";
 
     private static final Option<?>[] recognizedOptions = {
         new Option<JlinkTask>(false, (task, opt, arg) -> {
@@ -185,7 +172,7 @@ public class JlinkTask {
         }, "--version"),
         new Option<JlinkTask>(true, (task, opt, arg) -> {
             Path path = Paths.get(arg);
-            if (!task.isScratch && Files.exists(path)) {
+            if (Files.exists(path)) {
                 throw taskHelper.newBadArgs("err.dir.exists", path);
             }
             task.options.packagedModulesPath = path;
@@ -201,7 +188,7 @@ public class JlinkTask {
         }, "--ignore-signing-information"),
         new Option<JlinkTask>(false, (task, opt, arg) -> {
             task.options.ignoreModifiedRuntime = true;
-        }, true, "--ignore-modified-runtime"),
+        }, true, "--ignore-modified-runtime")
     };
 
 
@@ -248,9 +235,8 @@ public class JlinkTask {
 
     public static final String OPTIONS_RESOURCE = "jdk/tools/jlink/internal/options";
     public static final String RESPATH_PATTERN = "jdk/tools/jlink/internal/fs_%s_files";
-    public static final String CLI_RESOURCE_FILE = "jdk/tools/jlink/internal/cli_cmd.txt";
-    public static final String RUNIMAGE_LINK_STAMP = "jdk/tools/jlink/internal/runtimeimage.link.stamp";
-
+    // The diff file per module
+    public static final String DIFF_PATTERN = "jdk/tools/jlink/internal/diff_%s";
 
     int run(String[] args) {
         if (log == null) {
@@ -421,12 +407,52 @@ public class JlinkTask {
             }
             finder = newModuleFinder(options.modulePath, options.limitMods, roots);
         }
+        boolean isLinkFromRuntime = options.modulePath.isEmpty();
+        // In case of custom modules outside the JDK we may
+        // have a non-empty module path, which doesn't include
+        // java.base. In that case take the JDK modules from the
+        // current run-time image.
+        if (finder.find("java.base").isEmpty()) {
+            isLinkFromRuntime = true;
+            ModuleFinder runtimeImageFinder = ModuleFinder.ofSystem();
+            finder = combinedFinders(finder, runtimeImageFinder, options.limitMods, roots);
+        }
+
 
         return new JlinkConfiguration(options.output,
                                       roots,
                                       finder,
-                                      options.modulePath.isEmpty(),
+                                      isLinkFromRuntime,
                                       options.ignoreModifiedRuntime);
+    }
+
+    private ModuleFinder combinedFinders(ModuleFinder finder,
+            ModuleFinder runtimeImageFinder, Set<String> limitMods,
+            Set<String> roots) {
+        ModuleFinder combined = new ModuleFinder() {
+
+            @Override
+            public Optional<ModuleReference> find(String name) {
+                Optional<ModuleReference> basic = runtimeImageFinder.find(name);
+                if (basic.isEmpty()) {
+                    return finder.find(name);
+                }
+                return basic;
+            }
+
+            @Override
+            public Set<ModuleReference> findAll() {
+                Set<ModuleReference> all = new HashSet<>();
+                all.addAll(runtimeImageFinder.findAll());
+                all.addAll(finder.findAll());
+                return Collections.unmodifiableSet(all);
+            }
+        };
+        // if limitmods is specified then limit the universe
+        if (limitMods != null && !limitMods.isEmpty()) {
+            return limitFinder(combined, limitMods, Objects.requireNonNull(roots));
+        }
+        return combined;
     }
 
     private void createImage(JlinkConfiguration config) throws Exception {
@@ -451,7 +477,7 @@ public class JlinkTask {
         // Then create the Plugin Stack
         ImagePluginStack stack = ImagePluginConfiguration.parseConfiguration(
             taskHelper.getPluginsConfig(options.output, options.launchers,
-                    imageProvider.targetPlatform, config), getMergedCliArgs(config.linkFromRuntimeImage()));
+                    imageProvider.targetPlatform));
 
         //Ask the stack to proceed
         stack.operate(imageProvider);
@@ -510,15 +536,6 @@ public class JlinkTask {
         return finder;
     }
 
-    private static ModuleFinder moduleFinderFromPath(List<Path> paths, Runtime.Version version) {
-        if (Objects.requireNonNull(paths).isEmpty()) {
-            throw new IllegalArgumentException(taskHelper.getMessage("err.empty.module.path"));
-       }
-
-       Path[] entries = paths.toArray(new Path[0]);
-       return ModulePath.of(version, true, entries);
-    }
-
     private static void deleteDirectory(Path dir) throws IOException {
         Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
             @Override
@@ -575,37 +592,25 @@ public class JlinkTask {
 
         // Perform some setup for run-time image based links
         if (config.linkFromRuntimeImage()) {
-            // Check if the current run-time image has already been created using
-            // a run-time image link. If it is, fail the link as recursive
-            // links are not allowed.
-            try (InputStream in = JlinkTask.class.getModule().getResourceAsStream(RUNIMAGE_LINK_STAMP)) {
-                if (in != null) {
-                    String msg = taskHelper.getMessage("err.runtime.link.recursive");
-                    throw new IllegalArgumentException(msg);
-                }
+            // Catch the case where we don't have a linkable runtime. In that
+            // case, fs_java.base_files doesn't exist in the jdk.jlink
+            // module.
+            String resourceName = String.format(RESPATH_PATTERN, "java.base");
+            InputStream inStream = JlinkTask.class.getModule().getResourceAsStream(resourceName);
+            if (inStream == null) {
+                // Only linkable runtimes have those resources. Abort otherwise.
+                String msg = taskHelper.getMessage("err.runtime.link.not.linkable.runtime");
+                throw new IllegalArgumentException(msg);
+            }
+            // Disallow a runtime-image-based-link with jdk.jlink included
+            if (cf.findModule(JLINK_MOD_NAME).isPresent()) {
+                String msg = taskHelper.getMessage("err.runtime.link.jdk.jlink.prohibited");
+                throw new IllegalArgumentException(msg);
             }
 
             // Print info message when a run-image link is being performed
             if (log != null) {
-                Path detailsFile = Path.of("runtime-jlink-details.txt");
-                String verboseHint = " " + taskHelper.getMessage("runtime.link.info.hint", detailsFile.toString());
-                if (verbose) {
-                    // Don't mention the hint if we already use --verbose.
-                    verboseHint = "";
-                }
-                log.println(taskHelper.getMessage("runtime.link.info", verboseHint));
-                List<String> mergedCLIArgs = getMergedCliArgs(config.linkFromRuntimeImage());
-                if (verbose) {
-                    // Log to standard out with detailed info
-                    logPackagedModuleEquivalent(log, mergedCLIArgs, opts, verbose);
-                } else {
-                    // Log to a file 'runtime-jlink-details.txt' with the details
-                    // how the runtime-derived image can get produced using
-                    // packaged modules
-                    try (PrintWriter fileOut = new PrintWriter(new FileOutputStream(detailsFile.toFile()))) {
-                        logPackagedModuleEquivalent(fileOut, mergedCLIArgs, opts, verbose);
-                    }
-                }
+                log.println(taskHelper.getMessage("runtime.link.info"));
             }
         }
 
@@ -669,14 +674,13 @@ public class JlinkTask {
                         .orElse(Runtime.version());
 
         Set<Archive> archives = mods.entrySet().stream()
-                .map(e -> config.linkFromRuntimeImage() ? new JRTArchive(e.getKey(), e.getValue(), !config.ignoreModifiedRuntime())
-                                                        : newArchive(e.getKey(), e.getValue(), version, ignoreSigning))
+                .map(e -> newArchive(e.getKey(), e.getValue(), version, ignoreSigning, config))
                 .collect(Collectors.toSet());
 
         return new ImageHelper(archives, targetPlatform, retainModulesPath);
     }
 
-    private static Archive newArchive(String module, Path path, Runtime.Version version, boolean ignoreSigning) {
+    private static Archive newArchive(String module, Path path, Runtime.Version version, boolean ignoreSigning, JlinkConfiguration config) {
         if (path.toString().endsWith(".jmod")) {
             return new JmodArchive(module, path);
         } else if (path.toString().endsWith(".jar")) {
@@ -703,6 +707,12 @@ public class JlinkTask {
                 }
             }
             return modularJarArchive;
+        } else if (config.linkFromRuntimeImage()) {
+            // This is after jmod and modular jar branches, since, in runtime link
+            // mode custom - JDK external modules - are only supported via the
+            // module path. Directory module paths are not supported since those
+            // clash with JRT-FS based archives of JRTArchive.
+            return new JRTArchive(module, path, !config.ignoreModifiedRuntime());
         } else if (Files.isDirectory(path)) {
             Path modInfoPath = path.resolve("module-info.class");
             if (Files.isRegularFile(modInfoPath)) {
@@ -725,113 +735,6 @@ public class JlinkTask {
             throw new IllegalArgumentException(taskHelper.getMessage(
                     "err.cannot.read.module.info", modInfoPath), exp);
         }
-    }
-
-    /**
-     * Log a message when a run-time image link is being performed and mention
-     * the equivalent packaged-module based link.
-     *
-     * @param logWriter
-     *            The log to print to.
-     * @param mergedCLI
-     *            The merged command line parameters of the persisted link of
-     *            the run-time image being used and the current command line
-     *            arguments.
-     * @param opts
-     *            The parsed options of the current command line arguments.
-     */
-    private static void logPackagedModuleEquivalent(PrintWriter logWriter,
-            List<String> mergedCLI, OptionsValues opts, boolean isVerbose) {
-        // parse options, produce plugins maps.
-        TaskHelper scratchTaskHelper = new TaskHelper(JLINK_BUNDLE);
-        OptionsHelper<JlinkTask> scratchOptionsHelper = scratchTaskHelper.newOptionsHelper(JlinkTask.class, recognizedOptions);
-        JlinkTask scratch = new JlinkTask(true);
-
-        Map<Plugin, List<Map<String, String>>> pluginMaps = null;
-        try {
-            scratchOptionsHelper.handleOptions(scratch, mergedCLI.toArray(new String[] {}));
-            pluginMaps = scratchTaskHelper.getPluginMaps();
-        } catch (BadArgs e) {
-            throw new AssertionError("handling of scratch options failed", e);
-        }
-        List<Plugin> forwardingPlugins = pluginMaps.keySet()
-                                                        .stream()
-                                                        .filter(p -> p.runTimeImageLinkPersistent())
-                                                        .toList();
-        List<String> jlinkCmd = new ArrayList<>();
-        jlinkCmd.add("jlink");
-        // Iterate over recognized opts to figure out options used
-        if (opts.bindServices) {
-            jlinkCmd.add("--bind-services");
-        }
-        if (opts.suggestProviders) {
-            jlinkCmd.add("--suggest-providers");
-        }
-        if (opts.ignoreSigning) {
-            jlinkCmd.add("--ignore-signing");
-        }
-        // --add-modules is a required option, but the JLink API calls this with
-        // dummy options
-        if (!opts.addMods.isEmpty()) {
-            jlinkCmd.add("--add-modules");
-            jlinkCmd.add(opts.addMods.stream().collect(Collectors.joining(",")));
-        }
-        if (!opts.limitMods.isEmpty()) {
-            jlinkCmd.add("--limit-modules");
-            jlinkCmd.add(opts.limitMods.stream().collect(Collectors.joining(",")));
-        }
-        // Launchers carry forward, so we need to use the scratch JlinkTask
-        if (!scratch.options.launchers.isEmpty()) {
-            for (Map.Entry<String, String> entry: scratch.options.launchers.entrySet()) {
-                jlinkCmd.add("--launcher");
-                jlinkCmd.add(entry.getKey() + "=" + entry.getValue());
-            }
-        }
-        String outputPath = "";
-        if (opts.output != null) {
-            outputPath = opts.output.toString();
-            jlinkCmd.add("--output");
-            jlinkCmd.add(outputPath);
-        }
-        logWriter.println(taskHelper.getMessage("runtime.link.equivalent.packaged.modules", outputPath));
-        logWriter.print("    ");
-        logWriter.print(jlinkCmd.stream().collect(Collectors.joining(" ")));
-        for (Plugin p: forwardingPlugins) {
-            List<Map<String, String>> configs = pluginMaps.get(p);
-            for (Map<String, String> config: configs) {
-                String value = config.get(p.getName());
-                // Work-around for --dedup-legal-notices which auto-enables,
-                // carries forward and doesn't allow to be run without argument
-                // value from the CLI.
-                if (p instanceof LegalNoticeFilePlugin && value == null) {
-                    continue;
-                }
-                logWriter.print(" --" + p.getName());
-                if (value != null) {
-                    logWriter.print(" " + value);
-                }
-            }
-        }
-        logWriter.println();
-        if (isVerbose) {
-            logWriter.println(); // empty line to separate from modules output
-        }
-    }
-
-    private static List<String> getMergedCliArgs(boolean isRunTimeImageLink) throws IOException {
-        // First read in the stored CLI args that were used for the input
-        // run-time image
-        List<String> merged = new ArrayList<>();
-        if (isRunTimeImageLink) {
-            try (InputStream in = JlinkTask.class.getModule().getResourceAsStream(CLI_RESOURCE_FILE)) {
-                CommandLine.loadCmdFile(Objects.requireNonNull(in, "Old CLI args not being tracked in jimage"),
-                                merged);
-            }
-        }
-        for (String arg: optionsHelper.getInputCommand()) {
-            merged.add(arg);
-        }
-        return Collections.unmodifiableList(merged);
     }
 
     /*

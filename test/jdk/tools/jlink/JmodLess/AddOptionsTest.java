@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, Red Hat, Inc.
+ * Copyright (c) 2024, Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,8 +30,8 @@ import tests.Helper;
 
 /*
  * @test
- * @summary Test --add-options jlink plugin in jmod-less mode
- * @requires (vm.compMode != "Xcomp" & os.maxMemory >= 2g)
+ * @summary Test --add-options jlink plugin in runtime image link mode
+ * @requires (jlink.runtime.linkable & vm.compMode != "Xcomp" & os.maxMemory >= 2g)
  * @library ../../lib /test/lib
  * @enablePreview
  * @modules java.base/jdk.internal.classfile
@@ -43,7 +43,7 @@ import tests.Helper;
  *        jdk.test.lib.process.ProcessTools
  * @run main/othervm -Xmx1g AddOptionsTest
  */
-public class AddOptionsTest extends AbstractJmodLessTest {
+public class AddOptionsTest extends AbstractLinkableRuntimeTest {
 
     public static void main(String[] args) throws Exception {
         AddOptionsTest test = new AddOptionsTest();
@@ -52,7 +52,7 @@ public class AddOptionsTest extends AbstractJmodLessTest {
 
     @Override
     void runTest(Helper helper) throws Exception {
-        Path finalImage = createJavaImageJmodLess(new BaseJlinkSpecBuilder()
+        Path finalImage = createJavaImageRuntimeLink(new BaseJlinkSpecBuilder()
                 .addExtraOption("--add-options")
                 .addExtraOption("-Xlog:gc=info:stderr -XX:+UseParallelGC")
                 .name("java-base-with-opts")

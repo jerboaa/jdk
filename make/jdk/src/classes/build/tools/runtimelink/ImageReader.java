@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, Red Hat, Inc.
+ * Copyright (c) 2024, Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -20,23 +20,37 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
+package build.tools.runtimelink;
 
-import jdk.test.lib.process.OutputAnalyzer;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
-class CapturingHandler extends AbstractLinkableRuntimeTest.OutputAnalyzerHandler {
+import jdk.internal.jimage.BasicImageReader;
 
-    private OutputAnalyzer output;
+public class ImageReader extends BasicImageReader implements JimageDiffGenerator.ImageResource {
 
-    public String stdErr() {
-        return output.getStderr();
+    public ImageReader(Path path) throws IOException {
+        super(path);
     }
 
-    public OutputAnalyzer analyzer() {
-        return output;
+    public static boolean isNotTreeInfoResource(String path) {
+        return !(path.startsWith("/packages") || path.startsWith("/modules"));
     }
 
     @Override
-    public void handleAnalyzer(OutputAnalyzer out) {
-        this.output = out;
+    public List<String> getEntries() {
+        return Arrays.asList(getEntryNames()).stream()
+                .filter(ImageReader::isNotTreeInfoResource)
+                .sorted()
+                .collect(Collectors.toList());
     }
+
+    @Override
+    public byte[] getResourceBytes(String name) {
+        return getResource(name);
+    }
+
 }
