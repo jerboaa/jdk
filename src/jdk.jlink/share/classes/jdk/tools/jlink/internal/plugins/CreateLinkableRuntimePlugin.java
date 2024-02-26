@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, Red Hat, Inc.
+ * Copyright (c) 2024, Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,71 +25,72 @@
 
 package jdk.tools.jlink.internal.plugins;
 
+import static jdk.tools.jlink.internal.JlinkTask.DIFF_PATTERN;
+import static jdk.tools.jlink.internal.JlinkTask.RESPATH_PATTERN;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import jdk.tools.jlink.internal.JRTArchive;
-import jdk.tools.jlink.internal.JlinkCLIArgsListener;
 import jdk.tools.jlink.internal.Platform;
+import jdk.tools.jlink.internal.ResourceDiff;
 import jdk.tools.jlink.plugin.ResourcePool;
 import jdk.tools.jlink.plugin.ResourcePoolBuilder;
 import jdk.tools.jlink.plugin.ResourcePoolEntry;
 import jdk.tools.jlink.plugin.ResourcePoolModule;
 
-import static jdk.tools.jlink.internal.JlinkTask.RUNIMAGE_LINK_STAMP;
-import static jdk.tools.jlink.internal.JlinkTask.CLI_RESOURCE_FILE;
-import static jdk.tools.jlink.internal.JlinkTask.RESPATH_PATTERN;
-
 
 /**
- * Plugin to collect resources from jmod which aren't classes or
- * resources. Needed for the the run-time image based jlink.
+ * Plugin to produce a runtime-linkable JDK image. It does the following:
+ *
+ * <ul>
+ * <li>
+ * It tracks resources per module and saves the list in 'fs_$M_files' in the
+ * jdk.jlink module.
+ * </li>
+ * <li>
+ * It adds a serialized resource diff to the jdk.jlink module so as to be able
+ * to reconstruct the packaged modules equivalent view when performing runtime
+ * links.
+ * </li>
+ * </ul>
  */
-public final class JlinkResourcesListPlugin extends AbstractPlugin implements JlinkCLIArgsListener {
-    private static final String NAME = "add-run-image-resources";
+public final class CreateLinkableRuntimePlugin extends AbstractPlugin {
+    private static final String PLUGIN_NAME = "create-linkable-runtime";
     private static final String JLINK_MOD_NAME = "jdk.jlink";
     // This resource is being used in JLinkTask which passes its contents to
-    // RunImageArchive for further processing.
+    // JRTArchive for further processing.
     private static final String RESPATH = "/" + JLINK_MOD_NAME + "/" + RESPATH_PATTERN;
-    private static final String CLI_RESOURCE = "/" + JLINK_MOD_NAME + "/" + CLI_RESOURCE_FILE;
-    private static final Pattern WHITESPACE_PATTERN = Pattern.compile(".*\\s.*");
+    private static final String DIFF_PATH = "/" + JLINK_MOD_NAME + "/" + DIFF_PATTERN;
     private static final byte[] EMPTY_RESOURCE_BYTES = new byte[] {};
 
-    // Type file format:
-    // '<type>|{0,1}|<sha-sum>|<file-path>'
-    //   (1)    (2)      (3)      (4)
-    //
-    // Where fields are:
-    //
-    // (1) The resource type as specified by ResourcePoolEntry.type()
-    // (2) Symlink designator. 0 => regular resource, 1 => symlinked resource
-    // (3) The SHA-512 sum of the resources' content. The link to the target
-    //     for symlinked resources.
-    // (4) The relative file path of the resource
-    private static final String TYPE_FILE_FORMAT = "%d|%d|%s|%s";
-
     private final Map<String, List<String>> nonClassResEntries;
+    private String diffFile;
 
-    private List<String> commands;
-
-    public JlinkResourcesListPlugin() {
-        super(NAME);
+    public CreateLinkableRuntimePlugin() {
+        super(PLUGIN_NAME);
         this.nonClassResEntries = new ConcurrentHashMap<>();
     }
 
     @Override
-    public boolean isHidden() {
-        return true; // Don't show in --list-plugins output
+    public void configure(Map<String, String> config) {
+        String v = config.get(PLUGIN_NAME);
+        if (v == null)
+            throw new AssertionError();
+        diffFile = v;
     }
 
     @Override
@@ -101,40 +102,52 @@ public final class JlinkResourcesListPlugin extends AbstractPlugin implements Jl
             Platform targetPlatform = getTargetPlatform(in);
             in.transformAndCopy(e -> recordAndFilterEntry(e, targetPlatform), out);
             addModuleResourceEntries(in, out);
-            addCLIResource(out);
+            addResourceDiffFiles(in, out);
         } else {
-            in.transformAndCopy(Function.identity(), out);
+            throw new IllegalStateException("jdk.jlink module not in list of modules for target image");
         }
         return out.build();
     }
 
-    private void addCLIResource(ResourcePoolBuilder out) {
-        out.add(ResourcePoolEntry.create(CLI_RESOURCE, getCliBytes()));
-    }
-
-    private byte[] getCliBytes() {
-        StringBuilder builder = new StringBuilder();
-        for (String s: commands) {
-            Matcher m = WHITESPACE_PATTERN.matcher(s);
-            if (m.matches()) {
-                // Quote arguments containing whitespace
-                builder.append("\"");
-                builder.append(s);
-                builder.append("\"");
-            } else {
-                builder.append(s);
+    private void addResourceDiffFiles(ResourcePool in, ResourcePoolBuilder out) {
+        Map<String, List<ResourceDiff>> diffs = readResourceDiffs();
+        // Create a resource file with the delta to the packaged-modules view
+        in.moduleView().modules().forEach(m -> {
+            String modName = m.descriptor().name();
+            String resFile = String.format(DIFF_PATH, modName);
+            List<ResourceDiff> perModDiff = diffs.get(modName);
+            // Not every module will have a diff
+            if (perModDiff == null) {
+                perModDiff = Collections.emptyList();
             }
-            builder.append(" ");
-        }
-        builder.append("\n");
-        return builder.toString().getBytes(StandardCharsets.UTF_8);
+            ByteArrayOutputStream bout = new ByteArrayOutputStream();
+            try {
+                ResourceDiff.write(perModDiff, bout);
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to write per module diff");
+            }
+            out.add(ResourcePoolEntry.create(resFile, bout.toByteArray()));
+        });
     }
 
-    // Filter the resource we add.
-    @Override
-    public List<String> getExcludePatterns() {
-        return List.of("glob:" + CLI_RESOURCE,
-                       "regex:/jdk\\.jlink/" + String.format(RESPATH_PATTERN, ".*"));
+    private Map<String, List<ResourceDiff>> readResourceDiffs() {
+        List<ResourceDiff> resDiffs = null;
+        try (FileInputStream fin = new FileInputStream(new File(diffFile))) {
+            resDiffs = ResourceDiff.read(fin);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read resource diff file: " + diffFile);
+        }
+        Map<String, List<ResourceDiff>> modToDiff = new HashMap<>();
+        resDiffs.forEach(d -> {
+            int secondSlash = d.getName().indexOf("/", 1);
+            if (secondSlash == -1) {
+                throw new AssertionError("Module name not present");
+            }
+            String module = d.getName().substring(1, secondSlash);
+            List<ResourceDiff> perModDiff = modToDiff.computeIfAbsent(module, a -> new ArrayList<>());
+            perModDiff.add(d);
+        });
+        return modToDiff;
     }
 
     private Platform getTargetPlatform(ResourcePool in) {
@@ -182,25 +195,20 @@ public final class JlinkResourcesListPlugin extends AbstractPlugin implements Jl
 
     @Override
     public Set<State> getState() {
-        return EnumSet.of(State.AUTO_ENABLED, State.FUNCTIONAL);
+        return EnumSet.of(State.FUNCTIONAL);
     }
 
     @Override
     public boolean hasArguments() {
-        return false;
+        return true;
     }
 
     @Override
     public Category getType() {
         // Ensure we run in a later stage as we need to generate
-        // SHA-512 sums for non-(class/resource) files. The jmod_resources
+        // SHA-512 sums for non-(class/resource) files. The fs_$module_files
         // files can be considered meta-info describing the universe we
-        // draft from.
+        // draft from (together with the jimage and respective diff_$module files).
         return Category.METAINFO_ADDER;
-    }
-
-    @Override
-    public void process(List<String> commands) {
-        this.commands = commands;
     }
 }

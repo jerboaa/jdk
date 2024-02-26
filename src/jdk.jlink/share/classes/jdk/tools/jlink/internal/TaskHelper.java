@@ -28,35 +28,34 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
+import java.util.Map;
 import java.util.HashMap;
+import java.util.Map.Entry;
+import java.util.Set;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.MissingResourceException;
-import java.util.ResourceBundle;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.stream.Stream;
+import java.util.Collections;
+import java.util.Locale;
+import java.util.ResourceBundle;
+import java.util.MissingResourceException;
+import java.util.Comparator;
+
 
 import jdk.tools.jlink.builder.DefaultImageBuilder;
 import jdk.tools.jlink.builder.ImageBuilder;
-import jdk.tools.jlink.internal.Jlink.JlinkConfiguration;
 import jdk.tools.jlink.internal.Jlink.PluginsConfiguration;
 import jdk.tools.jlink.internal.plugins.DefaultCompressPlugin;
 import jdk.tools.jlink.internal.plugins.DefaultStripDebugPlugin;
 import jdk.tools.jlink.internal.plugins.ExcludeJmodSectionPlugin;
-import jdk.tools.jlink.internal.plugins.ExcludePlugin;
 import jdk.tools.jlink.internal.plugins.PluginsResourceBundle;
-import jdk.tools.jlink.internal.plugins.SystemModulesPlugin;
 import jdk.tools.jlink.plugin.Plugin;
 import jdk.tools.jlink.plugin.Plugin.Category;
+import jdk.tools.jlink.plugin.PluginException;
 
 /**
  *
@@ -411,53 +410,12 @@ public final class TaskHelper {
         }
 
         private PluginsConfiguration getPluginsConfig(Path output, Map<String, String> launchers,
-                                                      Platform targetPlatform, JlinkConfiguration config)
+                                                      Platform targetPlatform)
                 throws IOException, BadArgs {
             if (output != null) {
                 if (Files.exists(output)) {
                     throw new IllegalArgumentException(PluginsResourceBundle.
                             getMessage("err.dir.already.exits", output));
-                }
-            }
-
-            // if we perform a run-time based link, add relevant exclude
-            // patterns, so as to match the packaged-modules-based link
-            if (config.linkFromRuntimeImage()) {
-                Plugin systemModulesPlugin = null;
-                Plugin excludeResourcePlugin = null;
-                List<String> excludePatterns = new ArrayList<>();
-                for (Plugin p: pluginToMaps.keySet()) {
-                    if (p instanceof ExcludePlugin) {
-                        excludeResourcePlugin = p;
-                    }
-                    if (p instanceof SystemModulesPlugin) {
-                        systemModulesPlugin = p;
-                    }
-                    if (p.getExcludePatterns() != null) {
-                        excludePatterns.addAll(p.getExcludePatterns());
-                    }
-                }
-                String additionalPatterns = excludePatterns.stream().collect(Collectors.joining(","));
-                List<Map<String, String>> excludeResConfig = null;
-                if (excludeResourcePlugin == null) {
-                    // no existing 'exclude-resources' setting
-                    excludeResourcePlugin = PluginRepository.getPlugin("exclude-resources", ModuleLayer.boot());
-                    excludeResConfig = new ArrayList<>();
-                    excludeResConfig.add(Map.of("exclude-resources", additionalPatterns));
-                    pluginToMaps.put(excludeResourcePlugin, excludeResConfig);
-                } else {
-                    excludeResConfig = pluginToMaps.get(excludeResourcePlugin);
-                    // currently last exclude-resources wins
-                    Map<String, String> lastConfig = excludeResConfig.get(excludeResConfig.size() - 1);
-                    String existingPattern = lastConfig.get("exclude-resources");
-                    lastConfig.put("exclude-resources", existingPattern + "," + additionalPatterns);
-                    excludeResConfig.set(excludeResConfig.size() - 1, lastConfig);
-                }
-                // If the system modules plug-in is disabled, we fail the link
-                // as the SystemModulesMap class isn't guaranteed to be suitable
-                // for the to-be produced jimage.
-                if (systemModulesPlugin == null) {
-                    throw new IllegalArgumentException("Disabling system-modules plugin for a run-time image based link is not allowed.");
                 }
             }
 
@@ -644,7 +602,6 @@ public final class TaskHelper {
                     getPlugins(pluginOptions.pluginsLayer);
 
             pluginList.stream()
-                    .filter((Plugin plugin) -> !plugin.isHidden())
                     .sorted(Comparator.comparing((Plugin plugin) -> plugin.getUsage().isEmpty(),
                                                  (Boolean res1, Boolean res2) -> Boolean.compare(res2,res1))
                                       .thenComparing(Plugin::getName)
@@ -753,13 +710,9 @@ public final class TaskHelper {
     }
 
     public PluginsConfiguration getPluginsConfig(Path output, Map<String, String> launchers,
-                                                 Platform targetPlatform, JlinkConfiguration config)
+                                                 Platform targetPlatform)
             throws IOException, BadArgs {
-        return pluginOptions.getPluginsConfig(output, launchers, targetPlatform, config);
-    }
-
-    Map<Plugin, List<Map<String, String>>> getPluginMaps() {
-        return pluginOptions.pluginToMaps;
+        return pluginOptions.getPluginsConfig(output, launchers, targetPlatform);
     }
 
     public void showVersion(boolean full) {
