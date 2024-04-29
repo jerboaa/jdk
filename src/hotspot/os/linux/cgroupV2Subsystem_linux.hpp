@@ -31,8 +31,6 @@ class CgroupV2Controller: public CgroupController {
   private:
     /* the mount path of the cgroup v2 hierarchy */
     char *_mount_path;
-    /* The cgroup path for the controller */
-    char *_cgroup_path;
 
     /* Constructed full path to the subsystem directory */
     char *_path;
@@ -40,12 +38,17 @@ class CgroupV2Controller: public CgroupController {
 
   public:
     CgroupV2Controller(char * mount_path, char *cgroup_path) {
-      _mount_path = mount_path;
+      _mount_path = os::strdup(mount_path);
       _cgroup_path = os::strdup(cgroup_path);
       _path = construct_path(mount_path, cgroup_path);
     }
 
     char *subsystem_path() { return _path; }
+    bool needs_hierarchy_adjustment();
+    char * cgroup_path() { return _cgroup_path; }
+    char * mount_point() { return _mount_path; }
+    // Allow for optional updates of the subsystem path
+    void set_subsystem_path(char* cgroup_path);
 };
 
 class CgroupV2CpuController: public CgroupV2Controller, public CgroupCpuController {
@@ -55,6 +58,8 @@ class CgroupV2CpuController: public CgroupV2Controller, public CgroupCpuControll
     int cpu_quota();
     int cpu_period();
     int cpu_shares();
+    bool needs_hierarchy_adjustment();
+    CgroupCpuController* adjust_controller(int host_cpus);
 };
 
 class CgroupV2MemoryController: public CgroupV2Controller, public CgroupMemoryController {
@@ -71,6 +76,8 @@ class CgroupV2MemoryController: public CgroupV2Controller, public CgroupMemoryCo
     jlong rss_usage_in_bytes();
     jlong cache_usage_in_bytes();
     void print_version_specific_info(outputStream* st, julong host_mem);
+    bool needs_hierarchy_adjustment();
+    CgroupMemoryController* adjust_controller(julong phys_mem);
 };
 
 class CgroupV2Subsystem: public CgroupSubsystem {
@@ -85,8 +92,10 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     CgroupV2Subsystem(CgroupV2MemoryController * memory,
                       CgroupV2CpuController* cpu) {
       _unified = memory; // Use memory for now, should have all separate later
-      _memory = new CachingCgroupController<CgroupMemoryController*>(memory);
-      _cpu = new CachingCgroupController<CgroupCpuController*>(cpu);
+      CgroupMemoryController* m = adjust_controller(memory);
+      _memory = new CachingCgroupController<CgroupMemoryController*>(m);
+      CgroupCpuController* c = adjust_controller(cpu);
+      _cpu = new CachingCgroupController<CgroupCpuController*>(c);
     }
 
     jlong read_memory_limit_in_bytes();

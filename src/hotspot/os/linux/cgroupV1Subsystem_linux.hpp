@@ -44,17 +44,18 @@ class CgroupV1Controller: public CgroupController {
       _root = os::strdup(root);
       _mount_point = os::strdup(mountpoint);
       _path = nullptr;
+      _cgroup_path = nullptr;
     }
 
     virtual void set_subsystem_path(char *cgroup_path);
     char *subsystem_path() { return _path; }
+    bool needs_hierarchy_adjustment();
+    char *mount_point() { return _mount_point; }
 };
 
 class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryController {
 
   public:
-    bool is_hierarchical() { return _uses_mem_hierarchy; }
-    void set_subsystem_path(char *cgroup_path);
     jlong read_memory_limit_in_bytes(julong upper_bound);
     jlong memory_usage_in_bytes();
     jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swap);
@@ -67,19 +68,14 @@ class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryCo
     jlong kernel_memory_limit_in_bytes(julong host_mem);
     jlong kernel_memory_max_usage_in_bytes();
     void print_version_specific_info(outputStream* st, julong host_mem);
+    bool needs_hierarchy_adjustment();
+    CgroupV1MemoryController* adjust_controller(julong phys_mem);
   private:
-    /* Some container runtimes set limits via cgroup
-     * hierarchy. If set to true consider also memory.stat
-     * file if everything else seems unlimited */
-    bool _uses_mem_hierarchy;
-    jlong uses_mem_hierarchy();
-    void set_hierarchical(bool value) { _uses_mem_hierarchy = value; }
     jlong read_mem_swappiness();
     jlong read_mem_swap(julong host_total_memsw);
 
   public:
     CgroupV1MemoryController(char *root, char *mountpoint) : CgroupV1Controller(root, mountpoint) {
-      _uses_mem_hierarchy = false;
     }
 
 };
@@ -94,6 +90,8 @@ class CgroupV1CpuController: public CgroupV1Controller, public CgroupCpuControll
   public:
     CgroupV1CpuController(char *root, char *mountpoint) : CgroupV1Controller(root, mountpoint) {
     }
+    bool needs_hierarchy_adjustment();
+    CgroupV1CpuController* adjust_controller(int host_cpus);
 };
 
 class CgroupV1Subsystem: public CgroupSubsystem {
@@ -132,10 +130,12 @@ class CgroupV1Subsystem: public CgroupSubsystem {
                       CgroupV1Controller* pids,
                       CgroupV1MemoryController* memory) {
       _cpuset = cpuset;
-      _cpu = new CachingCgroupController<CgroupCpuController*>(cpu);
+      CgroupCpuController* c = adjust_controller(cpu);
+      _cpu = new CachingCgroupController<CgroupCpuController*>(c);
       _cpuacct = cpuacct;
       _pids = pids;
-      _memory = new CachingCgroupController<CgroupMemoryController*>(memory);
+      CgroupMemoryController* m = adjust_controller(memory);
+      _memory = new CachingCgroupController<CgroupMemoryController*>(m);
     }
 };
 

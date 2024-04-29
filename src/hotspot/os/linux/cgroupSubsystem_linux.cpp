@@ -682,6 +682,22 @@ jlong CgroupController::limit_from_str(char* limit_str) {
   return (jlong)limit;
 }
 
+CgroupMemoryController* CgroupSubsystem::adjust_controller(CgroupMemoryController* mem) {
+  if (mem->needs_hierarchy_adjustment()) {
+    julong phys_mem = os::Linux::physical_memory();
+    return mem->adjust_controller(phys_mem);
+  }
+  return mem;
+}
+
+CgroupCpuController* CgroupSubsystem::adjust_controller(CgroupCpuController* cpu) {
+  if (cpu->needs_hierarchy_adjustment()) {
+    int cpu_total = os::Linux::active_processor_count();
+    return cpu->adjust_controller(cpu_total);
+  }
+  return cpu;
+}
+
 // CgroupSubsystem implementations
 
 jlong CgroupSubsystem::memory_and_swap_limit_in_bytes() {

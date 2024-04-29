@@ -103,8 +103,12 @@
 }
 
 class CgroupController: public CHeapObj<mtInternal> {
+  protected:
+    char* _cgroup_path;
   public:
     virtual char* subsystem_path() = 0;
+    char* cgroup_path() { return _cgroup_path; }
+    virtual bool needs_hierarchy_adjustment() { return false; }
 
     /* Read a numerical value as unsigned long
      *
@@ -201,6 +205,8 @@ class CgroupCpuController {
     virtual int cpu_quota() = 0;
     virtual int cpu_period() = 0;
     virtual int cpu_shares() = 0;
+    virtual bool needs_hierarchy_adjustment() = 0;
+    virtual CgroupCpuController* adjust_controller(int host_cpus) = 0;
 };
 
 // Pure virtual class representing version agnostic memory controllers
@@ -214,7 +220,9 @@ class CgroupMemoryController {
     virtual jlong memory_max_usage_in_bytes() = 0;
     virtual jlong rss_usage_in_bytes() = 0;
     virtual jlong cache_usage_in_bytes() = 0;
-    virtual void print_version_specific_info(outputStream* st, julong host_mem);
+    virtual void print_version_specific_info(outputStream* st, julong host_mem) = 0;
+    virtual CgroupMemoryController* adjust_controller(julong phys_mem) = 0;
+    virtual bool needs_hierarchy_adjustment() = 0;
 };
 
 class CgroupSubsystem: public CHeapObj<mtInternal> {
@@ -242,6 +250,8 @@ class CgroupSubsystem: public CHeapObj<mtInternal> {
     jlong rss_usage_in_bytes();
     jlong cache_usage_in_bytes();
     void print_version_specific_info(outputStream* st);
+    static CgroupMemoryController* adjust_controller(CgroupMemoryController* m);
+    static CgroupCpuController* adjust_controller(CgroupCpuController* c);
 };
 
 // Utility class for storing info retrieved from /proc/cgroups,
