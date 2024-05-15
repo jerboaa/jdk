@@ -32,9 +32,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.testng.Assert;
-import org.testng.annotations.BeforeTest;
-import org.testng.annotations.Test;
-
 import tests.Helper;
 import tests.JImageGenerator;
 import tests.JImageValidator;
