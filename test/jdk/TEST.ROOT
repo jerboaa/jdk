@@ -105,7 +105,8 @@ requires.properties= \
     release.implementor \
     jdk.containerized \
     jdk.foreign.linker \
-    jlink.runtime.linkable
+    jlink.runtime.linkable \
+    jlink.packagedModules
 
 # Minimum jtreg version
 requiredVersion=7.4+1
