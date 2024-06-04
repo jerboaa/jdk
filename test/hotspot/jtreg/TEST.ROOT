@@ -87,7 +87,8 @@ requires.properties= \
     container.support \
     systemd.support \
     jdk.containerized \
-    jlink.runtime.linkable
+    jlink.runtime.linkable \
+    jlink.packagedModules
 
 # Minimum jtreg version
 requiredVersion=7.4+1
