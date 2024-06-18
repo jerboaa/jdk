@@ -43,11 +43,13 @@ class CgroupV1Controller: public CgroupController {
     CgroupV1Controller(char *root, char *mountpoint) : _root(os::strdup(root)),
                                                        _mount_point(os::strdup(mountpoint)),
                                                        _path(nullptr) {
+      _cgroup_path = nullptr;
     }
     // Shallow copy constructor
     CgroupV1Controller(const CgroupV1Controller& o) : _root(o._root),
                                                       _mount_point(o._mount_point),
                                                       _path(o._path) {
+      _cgroup_path = o._cgroup_path;
     }
     ~CgroupV1Controller() {
       // At least one subsystem controller exists with paths to malloc'd path

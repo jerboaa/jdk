@@ -40,11 +40,13 @@ class CgroupV2Controller: public CgroupController {
     CgroupV2Controller(char* mount_path, char* cgroup_path) :
                                             _mount_path(os::strdup(mount_path)),
                                             _path(construct_path(mount_path, cgroup_path)) {
+      _cgroup_path = os::strdup(cgroup_path);
     }
     // Shallow copy constructor
     CgroupV2Controller(const CgroupV2Controller& o) :
                                             _mount_path(o._mount_path),
                                             _path(o._path) {
+      _cgroup_path = o._cgroup_path;
     }
     ~CgroupV2Controller() {
       // At least one controller exists with references to the paths
