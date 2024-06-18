@@ -37,15 +37,13 @@ class CgroupV2Controller: public CgroupController {
     static char* construct_path(char* mount_path, char *cgroup_path);
 
   public:
-    CgroupV2Controller(char * mount_path, char *cgroup_path) :
+    CgroupV2Controller(char* mount_path, char* cgroup_path) :
                                             _mount_path(os::strdup(mount_path)),
-                                            _cgroup_path(os::strdup(cgroup_path)),
                                             _path(construct_path(mount_path, cgroup_path)) {
     }
     // Shallow copy constructor
     CgroupV2Controller(const CgroupV2Controller& o) :
                                             _mount_path(o._mount_path),
-                                            _cgroup_path(o._cgroup_path),
                                             _path(o._path) {
     }
     ~CgroupV2Controller() {
@@ -54,7 +52,6 @@ class CgroupV2Controller: public CgroupController {
 
     char *subsystem_path() override { return _path; }
     bool needs_hierarchy_adjustment();
-    char * cgroup_path() { return _cgroup_path; }
     char * mount_point() { return _mount_path; }
     // Allow for optional updates of the subsystem path
     void set_subsystem_path(char* cgroup_path);
@@ -109,11 +106,11 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     CgroupV2Subsystem(CgroupV2MemoryController * memory,
                       CgroupV2CpuController* cpu,
                       CgroupV2Controller unified) :
-      _unified = unified;
+                         _unified(unified) {
       CgroupMemoryController* m = adjust_controller(memory);
-      _memory = new CachingCgroupController<CgroupMemoryController*>(m);
+      _memory = new CachingCgroupController<CgroupMemoryController>(m);
       CgroupCpuController* c = adjust_controller(cpu);
-      _cpu = new CachingCgroupController<CgroupCpuController*>(c);
+      _cpu = new CachingCgroupController<CgroupCpuController>(c);
     }
 
     jlong read_memory_limit_in_bytes();

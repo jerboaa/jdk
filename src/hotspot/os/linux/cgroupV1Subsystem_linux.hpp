@@ -66,7 +66,9 @@ class CgroupV1MemoryController final : public CgroupMemoryController {
     CgroupV1Controller _reader;
     CgroupV1Controller* reader() { return &_reader; }
   public:
-    void set_subsystem_path(char *cgroup_path);
+    void set_subsystem_path(char *cgroup_path) {
+      reader()->set_subsystem_path(cgroup_path);
+    }
     jlong read_memory_limit_in_bytes(julong upper_bound) override;
     jlong memory_usage_in_bytes() override;
     jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swap) override;
@@ -87,8 +89,7 @@ class CgroupV1MemoryController final : public CgroupMemoryController {
 
   public:
     CgroupV1MemoryController(CgroupV1Controller reader)
-      : _reader(reader),
-        _uses_mem_hierarchy(false) {
+      : _reader(reader) {
     }
 
 };
@@ -150,11 +151,11 @@ class CgroupV1Subsystem: public CgroupSubsystem {
                       CgroupV1MemoryController* memory) {
       _cpuset = cpuset;
       CgroupCpuController* c = adjust_controller(cpu);
-      _cpu = new CachingCgroupController<CgroupCpuController*>(c);
+      _cpu = new CachingCgroupController<CgroupCpuController>(c);
       _cpuacct = cpuacct;
       _pids = pids;
       CgroupMemoryController* m = adjust_controller(memory);
-      _memory = new CachingCgroupController<CgroupMemoryController*>(m);
+      _memory = new CachingCgroupController<CgroupMemoryController>(m);
     }
 };
 

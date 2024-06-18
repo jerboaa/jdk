@@ -74,18 +74,17 @@ void CgroupV1Controller::set_subsystem_path(char *cgroup_path) {
 }
 
 bool CgroupV1MemoryController::needs_hierarchy_adjustment() {
-  return CgroupV1Controller::needs_hierarchy_adjustment();
+  return reader()->needs_hierarchy_adjustment();
 }
 
 bool CgroupV1CpuController::needs_hierarchy_adjustment() {
-  return CgroupV1Controller::needs_hierarchy_adjustment();
+  return reader()->needs_hierarchy_adjustment();
 }
 
 CgroupV1MemoryController* CgroupV1MemoryController::adjust_controller(julong phys_mem) {
-  log_trace(os, container)("Adjusting v1 controller path for memory: %s", subsystem_path());
-  CgroupV1Controller* base_ctrl = static_cast<CgroupV1Controller*>(this);
-  assert(base_ctrl->cgroup_path() != nullptr, "invariant");
-  char* orig = os::strdup(base_ctrl->cgroup_path());
+  log_trace(os, container)("Adjusting v1 controller path for memory: %s", reader()->subsystem_path());
+  assert(reader()->cgroup_path() != nullptr, "invariant");
+  char* orig = os::strdup(reader()->cgroup_path());
   char* cg_path = os::strdup(orig);
   char* last_slash;
   jlong limit = read_memory_limit_in_bytes(phys_mem);
@@ -93,11 +92,11 @@ CgroupV1MemoryController* CgroupV1MemoryController::adjust_controller(julong phy
   while (limit < 0 && (last_slash = strrchr(cg_path, '/')) != cg_path) {
     *last_slash = '\0'; // strip path
     // update to shortened path and try again
-    base_ctrl->set_subsystem_path(cg_path);
+    reader()->set_subsystem_path(cg_path);
     limit = read_memory_limit_in_bytes(phys_mem);
     path_iterated = true;
     if (limit > 0) {
-      log_trace(os, container)("Adjusted v1 controller path for memory to: %s", subsystem_path());
+      log_trace(os, container)("Adjusted v1 controller path for memory to: %s", reader()->subsystem_path());
       os::free(cg_path);
       os::free(orig);
       return this;
@@ -106,31 +105,30 @@ CgroupV1MemoryController* CgroupV1MemoryController::adjust_controller(julong phy
   // no lower limit found or limit at leaf
   os::free(cg_path);
   if (path_iterated) {
-    base_ctrl->set_subsystem_path((char*)"/");
+    reader()->set_subsystem_path((char*)"/");
     limit = read_memory_limit_in_bytes(phys_mem);
     if (limit > 0) {
       // handle limit set at mount point
-      log_trace(os, container)("Adjusted v1 controller path for memory to: %s", subsystem_path());
+      log_trace(os, container)("Adjusted v1 controller path for memory to: %s", reader()->subsystem_path());
       os::free(orig);
       return this;
     }
     log_trace(os, container)("No lower limit found in hierarchy %s, adjusting to original path %s",
-                              base_ctrl->mount_point(), orig);
-    base_ctrl->set_subsystem_path(orig);
+                              reader()->mount_point(), orig);
+    reader()->set_subsystem_path(orig);
   } else {
     log_trace(os, container)("Lowest limit for memory at leaf: %s",
-                              base_ctrl->subsystem_path());
+                              reader()->subsystem_path());
   }
   os::free(orig);
   return this;
 }
 
 CgroupV1CpuController* CgroupV1CpuController::adjust_controller(int host_cpus) {
-  log_trace(os, container)("Adjusting v1 controller path for cpu: %s", subsystem_path());
-  CgroupV1Controller* base_ctrl = static_cast<CgroupV1Controller*>(this);
-  assert(base_ctrl->cgroup_path() != nullptr, "invariant");
+  log_trace(os, container)("Adjusting v1 controller path for cpu: %s", reader()->subsystem_path());
+  assert(reader()->cgroup_path() != nullptr, "invariant");
   assert(host_cpus > 0, "Negative host cpus?");
-  char* orig = os::strdup(base_ctrl->cgroup_path());
+  char* orig = os::strdup(reader()->cgroup_path());
   char* cg_path = os::strdup(orig);
   char* last_slash;
   int cpus = CgroupUtil::processor_count(this, host_cpus);
@@ -138,11 +136,11 @@ CgroupV1CpuController* CgroupV1CpuController::adjust_controller(int host_cpus) {
   while (cpus == host_cpus && (last_slash = strrchr(cg_path, '/')) != cg_path) {
     *last_slash = '\0'; // strip path
     // update to shortened path and try again
-    base_ctrl->set_subsystem_path((char*)cg_path);
+    reader()->set_subsystem_path((char*)cg_path);
     cpus = CgroupUtil::processor_count(this, host_cpus);
     path_iterated = true;
     if (cpus != host_cpus) {
-      log_trace(os, container)("Adjusted v1 controller path for cpu to: %s", subsystem_path());
+      log_trace(os, container)("Adjusted v1 controller path for cpu to: %s", reader()->subsystem_path());
       os::free(cg_path);
       os::free(orig);
       return this;
@@ -151,20 +149,20 @@ CgroupV1CpuController* CgroupV1CpuController::adjust_controller(int host_cpus) {
   // no lower limit found or limit at leaf
   os::free(cg_path);
   if (path_iterated) {
-    base_ctrl->set_subsystem_path((char*)"/");
+    reader()->set_subsystem_path((char*)"/");
     cpus = CgroupUtil::processor_count(this, host_cpus);
     if (cpus != host_cpus) {
       // handle limit set at mount point
-      log_trace(os, container)("Adjusted v1 controller path for cpu to: %s", subsystem_path());
+      log_trace(os, container)("Adjusted v1 controller path for cpu to: %s", reader()->subsystem_path());
       os::free(orig);
       return this;
     }
     log_trace(os, container)("No lower limit found in hierarchy %s, adjusting to original path %s",
-                              base_ctrl->mount_point(), orig);
-    base_ctrl->set_subsystem_path(orig);
+                              reader()->mount_point(), orig);
+    reader()->set_subsystem_path(orig);
   } else {
     log_trace(os, container)("Lowest limit for cpu at leaf: %s",
-                              base_ctrl->subsystem_path());
+                              reader()->subsystem_path());
   }
   os::free(orig);
   return this;

@@ -473,18 +473,18 @@ TEST(cgroupTest, cgroupv2_is_hierarchy_walk_needed) {
   test = new CgroupV2Controller( (char*)"/sys/fs/cgroup/b", (char*)"/a/b" /* cgroup_path */);
   EXPECT_TRUE(test->needs_hierarchy_adjustment());
 
-  CgroupCpuController* test2 = new CgroupV2CpuController( (char*)"/sys/fs/cgroup", (char*)"/" /* cgroup_path */);
+  CgroupCpuController* test2 = new CgroupV2CpuController(CgroupV2Controller((char*)"/sys/fs/cgroup", (char*)"/" /* cgroup_path */));
   EXPECT_FALSE(test2->needs_hierarchy_adjustment());
-  test2 = new CgroupV2CpuController( (char*)"/sys/fs/cgroup", (char*)"/bar" /* cgroup_path */);
+  test2 = new CgroupV2CpuController(CgroupV2Controller((char*)"/sys/fs/cgroup", (char*)"/bar" /* cgroup_path */));
   EXPECT_TRUE(test2->needs_hierarchy_adjustment());
-  test2 = new CgroupV2CpuController( (char*)"/sys/fs/cgroup/b", (char*)"/a/b" /* cgroup_path */);
+  test2 = new CgroupV2CpuController(CgroupV2Controller((char*)"/sys/fs/cgroup/b", (char*)"/a/b" /* cgroup_path */));
   EXPECT_TRUE(test2->needs_hierarchy_adjustment());
 
-  CgroupMemoryController* test3 = new CgroupV2MemoryController( (char*)"/sys/fs/cgroup", (char*)"/" /* cgroup_path */);
+  CgroupMemoryController* test3 = new CgroupV2MemoryController(CgroupV2Controller((char*)"/sys/fs/cgroup", (char*)"/" /* cgroup_path */));
   EXPECT_FALSE(test3->needs_hierarchy_adjustment());
-  test3 = new CgroupV2MemoryController( (char*)"/sys/fs/cgroup", (char*)"/bar" /* cgroup_path */);
+  test3 = new CgroupV2MemoryController(CgroupV2Controller((char*)"/sys/fs/cgroup", (char*)"/bar" /* cgroup_path */));
   EXPECT_TRUE(test3->needs_hierarchy_adjustment());
-  test3 = new CgroupV2MemoryController( (char*)"/sys/fs/cgroup/b", (char*)"/a/b" /* cgroup_path */);
+  test3 = new CgroupV2MemoryController(CgroupV2Controller((char*)"/sys/fs/cgroup/b", (char*)"/a/b" /* cgroup_path */));
   EXPECT_TRUE(test3->needs_hierarchy_adjustment());
 }
 
@@ -498,21 +498,21 @@ TEST(cgroupTest, cgroupv1_is_hierarchy_walk_needed) {
   test->set_subsystem_path((char*)"/");
   EXPECT_TRUE(test->needs_hierarchy_adjustment());
 
-  CgroupCpuController* test2 = new CgroupV1CpuController( (char*)"/a/b/c" /* root */, (char*)"/sys/fs/cgroup/memory" /* mount_path */);
+  CgroupCpuController* test2 = new CgroupV1CpuController(CgroupV1Controller((char*)"/a/b/c" /* root */, (char*)"/sys/fs/cgroup/memory" /* mount_path */));
   static_cast<CgroupV1CpuController*>(test2)->set_subsystem_path((char*)"/a/b/c");
   EXPECT_FALSE(test2->needs_hierarchy_adjustment());
   static_cast<CgroupV1CpuController*>(test2)->set_subsystem_path((char*)"/");
   EXPECT_TRUE(test2->needs_hierarchy_adjustment());
-  test2 = new CgroupV1CpuController( (char*)"/a/b/c" /* root */, (char*)"/"/* mount_path */);
+  test2 = new CgroupV1CpuController(CgroupV1Controller((char*)"/a/b/c" /* root */, (char*)"/"/* mount_path */));
   static_cast<CgroupV1CpuController*>(test2)->set_subsystem_path((char*)"/");
   EXPECT_TRUE(test2->needs_hierarchy_adjustment());
 
-  CgroupMemoryController* test3 = new CgroupV1MemoryController( (char*)"/a/b/c" /* root */, (char*)"/sys/fs/cgroup/memory" /* mount_path */);
+  CgroupMemoryController* test3 = new CgroupV1MemoryController(CgroupV1Controller((char*)"/a/b/c" /* root */, (char*)"/sys/fs/cgroup/memory" /* mount_path */));
   static_cast<CgroupV1MemoryController*>(test3)->set_subsystem_path((char*)"/a/b/c");
   EXPECT_FALSE(test3->needs_hierarchy_adjustment());
   static_cast<CgroupV1MemoryController*>(test3)->set_subsystem_path((char*)"/");
   EXPECT_TRUE(test3->needs_hierarchy_adjustment());
-  test3 = new CgroupV1MemoryController( (char*)"/a/b/c" /* root */, (char*)"/"/* mount_path */);
+  test3 = new CgroupV1MemoryController(CgroupV1Controller((char*)"/a/b/c" /* root */, (char*)"/"/* mount_path */));
   static_cast<CgroupV1MemoryController*>(test3)->set_subsystem_path((char*)"/");
   EXPECT_TRUE(test3->needs_hierarchy_adjustment());
 }
