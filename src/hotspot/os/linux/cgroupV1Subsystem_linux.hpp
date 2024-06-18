@@ -40,19 +40,6 @@ class CgroupV1Controller: public CgroupController {
     char* _path;
 
   public:
-<<<<<<< HEAD
-    CgroupV1Controller(char *root, char *mountpoint) {
-      _root = os::strdup(root);
-      _mount_point = os::strdup(mountpoint);
-      _path = nullptr;
-      _cgroup_path = nullptr;
-    }
-
-    virtual void set_subsystem_path(char *cgroup_path);
-    char *subsystem_path() { return _path; }
-    bool needs_hierarchy_adjustment();
-    char *mount_point() { return _mount_point; }
-=======
     CgroupV1Controller(char *root, char *mountpoint) : _root(os::strdup(root)),
                                                        _mount_point(os::strdup(mountpoint)),
                                                        _path(nullptr) {
@@ -68,8 +55,9 @@ class CgroupV1Controller: public CgroupController {
     }
 
     void set_subsystem_path(char *cgroup_path);
-    char *subsystem_path() override { return _path; }
->>>>>>> jdk-8331560-cgroup-controller-delegation
+    char *subsystem_path() { return _path; }
+    bool needs_hierarchy_adjustment();
+    char *mount_point() { return _mount_point; }
 };
 
 class CgroupV1MemoryController final : public CgroupMemoryController {
@@ -78,23 +66,6 @@ class CgroupV1MemoryController final : public CgroupMemoryController {
     CgroupV1Controller _reader;
     CgroupV1Controller* reader() { return &_reader; }
   public:
-<<<<<<< HEAD
-    jlong read_memory_limit_in_bytes(julong upper_bound);
-    jlong memory_usage_in_bytes();
-    jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swap);
-    jlong memory_and_swap_usage_in_bytes(julong host_mem, julong host_swap);
-    jlong memory_soft_limit_in_bytes(julong upper_bound);
-    jlong memory_max_usage_in_bytes();
-    jlong rss_usage_in_bytes();
-    jlong cache_usage_in_bytes();
-    jlong kernel_memory_usage_in_bytes();
-    jlong kernel_memory_limit_in_bytes(julong host_mem);
-    jlong kernel_memory_max_usage_in_bytes();
-    void print_version_specific_info(outputStream* st, julong host_mem);
-    bool needs_hierarchy_adjustment();
-    CgroupV1MemoryController* adjust_controller(julong phys_mem);
-=======
-    bool is_hierarchical() { return _uses_mem_hierarchy; }
     void set_subsystem_path(char *cgroup_path);
     jlong read_memory_limit_in_bytes(julong upper_bound) override;
     jlong memory_usage_in_bytes() override;
@@ -108,19 +79,16 @@ class CgroupV1MemoryController final : public CgroupMemoryController {
     jlong kernel_memory_limit_in_bytes(julong host_mem);
     jlong kernel_memory_max_usage_in_bytes();
     void print_version_specific_info(outputStream* st, julong host_mem) override;
->>>>>>> jdk-8331560-cgroup-controller-delegation
+    bool needs_hierarchy_adjustment() override;
+    CgroupV1MemoryController* adjust_controller(julong phys_mem) override;
   private:
     jlong read_mem_swappiness();
     jlong read_mem_swap(julong host_total_memsw);
 
   public:
-<<<<<<< HEAD
-    CgroupV1MemoryController(char *root, char *mountpoint) : CgroupV1Controller(root, mountpoint) {
-=======
     CgroupV1MemoryController(CgroupV1Controller reader)
       : _reader(reader),
         _uses_mem_hierarchy(false) {
->>>>>>> jdk-8331560-cgroup-controller-delegation
     }
 
 };
