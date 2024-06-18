@@ -37,13 +37,22 @@ class CgroupV2Controller: public CgroupController {
     static char* construct_path(char* mount_path, char *cgroup_path);
 
   public:
-    CgroupV2Controller(char * mount_path, char *cgroup_path) {
-      _mount_path = os::strdup(mount_path);
-      _cgroup_path = os::strdup(cgroup_path);
-      _path = construct_path(mount_path, cgroup_path);
+    CgroupV2Controller(char * mount_path, char *cgroup_path) :
+                                            _mount_path(os::strdup(mount_path)),
+                                            _cgroup_path(os::strdup(cgroup_path)),
+                                            _path(construct_path(mount_path, cgroup_path)) {
+    }
+    // Shallow copy constructor
+    CgroupV2Controller(const CgroupV2Controller& o) :
+                                            _mount_path(o._mount_path),
+                                            _cgroup_path(o._cgroup_path),
+                                            _path(o._path) {
+    }
+    ~CgroupV2Controller() {
+      // At least one controller exists with references to the paths
     }
 
-    char *subsystem_path() { return _path; }
+    char *subsystem_path() override { return _path; }
     bool needs_hierarchy_adjustment();
     char * cgroup_path() { return _cgroup_path; }
     char * mount_point() { return _mount_path; }
@@ -51,9 +60,12 @@ class CgroupV2Controller: public CgroupController {
     void set_subsystem_path(char* cgroup_path);
 };
 
-class CgroupV2CpuController: public CgroupV2Controller, public CgroupCpuController {
+class CgroupV2CpuController: public CgroupCpuController {
+  private:
+    CgroupV2Controller _reader;
+    CgroupV2Controller* reader() { return &_reader; }
   public:
-    CgroupV2CpuController(char * mount_path, char *cgroup_path) : CgroupV2Controller(mount_path, cgroup_path) {
+    CgroupV2CpuController(CgroupV2Controller reader) : _reader(reader) {
     }
     int cpu_quota();
     int cpu_period();
@@ -62,36 +74,42 @@ class CgroupV2CpuController: public CgroupV2Controller, public CgroupCpuControll
     CgroupCpuController* adjust_controller(int host_cpus);
 };
 
-class CgroupV2MemoryController: public CgroupV2Controller, public CgroupMemoryController {
+class CgroupV2MemoryController final: public CgroupMemoryController {
+  private:
+    CgroupV2Controller _reader;
+    CgroupV2Controller* reader() { return &_reader; }
   public:
-    CgroupV2MemoryController(char * mount_path, char *cgroup_path) : CgroupV2Controller(mount_path, cgroup_path) {
+    CgroupV2MemoryController(CgroupV2Controller reader) : _reader(reader) {
     }
 
-    jlong read_memory_limit_in_bytes(julong upper_bound);
-    jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swp);
-    jlong memory_and_swap_usage_in_bytes(julong host_mem, julong host_swp);
-    jlong memory_soft_limit_in_bytes(julong upper_bound);
-    jlong memory_usage_in_bytes();
-    jlong memory_max_usage_in_bytes();
-    jlong rss_usage_in_bytes();
-    jlong cache_usage_in_bytes();
-    void print_version_specific_info(outputStream* st, julong host_mem);
-    bool needs_hierarchy_adjustment();
-    CgroupMemoryController* adjust_controller(julong phys_mem);
+    jlong read_memory_limit_in_bytes(julong upper_bound) override;
+    jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swp) override;
+    jlong memory_and_swap_usage_in_bytes(julong host_mem, julong host_swp) override;
+    jlong memory_soft_limit_in_bytes(julong upper_bound) override;
+    jlong memory_usage_in_bytes() override;
+    jlong memory_max_usage_in_bytes() override;
+    jlong rss_usage_in_bytes() override;
+    jlong cache_usage_in_bytes() override;
+    void print_version_specific_info(outputStream* st, julong host_mem) override;
+    bool needs_hierarchy_adjustment() override;
+    CgroupMemoryController* adjust_controller(julong phys_mem) override;
 };
 
 class CgroupV2Subsystem: public CgroupSubsystem {
   private:
     /* One unified controller */
-    CgroupV2MemoryController* _unified = nullptr;
+    CgroupV2Controller _unified;
     /* Caching wrappers for cpu/memory metrics */
-    CachingCgroupController<CgroupMemoryController*>* _memory = nullptr;
-    CachingCgroupController<CgroupCpuController*>* _cpu = nullptr;
+    CachingCgroupController<CgroupMemoryController>* _memory = nullptr;
+    CachingCgroupController<CgroupCpuController>* _cpu = nullptr;
+
+    CgroupV2Controller* unified() { return &_unified; }
 
   public:
     CgroupV2Subsystem(CgroupV2MemoryController * memory,
-                      CgroupV2CpuController* cpu) {
-      _unified = memory; // Use memory for now, should have all separate later
+                      CgroupV2CpuController* cpu,
+                      CgroupV2Controller unified) :
+      _unified = unified;
       CgroupMemoryController* m = adjust_controller(memory);
       _memory = new CachingCgroupController<CgroupMemoryController*>(m);
       CgroupCpuController* c = adjust_controller(cpu);
@@ -120,8 +138,8 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     const char * container_type() {
       return "cgroupv2";
     }
-    CachingCgroupController<CgroupMemoryController*>* memory_controller() { return _memory; }
-    CachingCgroupController<CgroupCpuController*>* cpu_controller() { return _cpu; }
+    CachingCgroupController<CgroupMemoryController>* memory_controller() { return _memory; }
+    CachingCgroupController<CgroupCpuController>* cpu_controller() { return _cpu; }
 };
 
 #endif // CGROUP_V2_SUBSYSTEM_LINUX_HPP

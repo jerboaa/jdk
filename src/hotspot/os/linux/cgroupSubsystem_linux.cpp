@@ -62,13 +62,14 @@ CgroupSubsystem* CgroupSubsystemFactory::create() {
   if (is_cgroup_v2(&cg_type_flags)) {
     // Cgroups v2 case, we have all the info we need.
     // Construct the subsystem, free resources and return
-    // Note: any index in cg_infos will do as the path is the same for
-    //       all controllers.
-    CgroupV2MemoryController* memory = new CgroupV2MemoryController(cg_infos[MEMORY_IDX]._mount_path, cg_infos[MEMORY_IDX]._cgroup_path);
-    CgroupV2CpuController* cpu = new CgroupV2CpuController(cg_infos[CPU_IDX]._mount_path, cg_infos[CPU_IDX]._cgroup_path);
+    // Note: We use the memory for non-cpu non-memory controller look-ups.
+    //       Perhaps we ought to have separate controllers for all.
+    CgroupV2Controller mem_other = CgroupV2Controller(cg_infos[MEMORY_IDX]._mount_path, cg_infos[MEMORY_IDX]._cgroup_path);
+    CgroupV2MemoryController* memory = new CgroupV2MemoryController(mem_other);
+    CgroupV2CpuController* cpu = new CgroupV2CpuController(CgroupV2Controller(cg_infos[CPU_IDX]._mount_path, cg_infos[CPU_IDX]._cgroup_path));
     log_debug(os, container)("Detected cgroups v2 unified hierarchy");
     cleanup(cg_infos);
-    return new CgroupV2Subsystem(memory, cpu);
+    return new CgroupV2Subsystem(memory, cpu, mem_other);
   }
 
   /*
@@ -102,13 +103,13 @@ CgroupSubsystem* CgroupSubsystemFactory::create() {
     CgroupInfo info = cg_infos[i];
     if (info._data_complete) { // pids controller might have incomplete data
       if (strcmp(info._name, "memory") == 0) {
-        memory = new CgroupV1MemoryController(info._root_mount_path, info._mount_path);
+        memory = new CgroupV1MemoryController(CgroupV1Controller(info._root_mount_path, info._mount_path));
         memory->set_subsystem_path(info._cgroup_path);
       } else if (strcmp(info._name, "cpuset") == 0) {
         cpuset = new CgroupV1Controller(info._root_mount_path, info._mount_path);
         cpuset->set_subsystem_path(info._cgroup_path);
       } else if (strcmp(info._name, "cpu") == 0) {
-        cpu = new CgroupV1CpuController(info._root_mount_path, info._mount_path);
+        cpu = new CgroupV1CpuController(CgroupV1Controller(info._root_mount_path, info._mount_path));
         cpu->set_subsystem_path(info._cgroup_path);
       } else if (strcmp(info._name, "cpuacct") == 0) {
         cpuacct = new CgroupV1Controller(info._root_mount_path, info._mount_path);
@@ -483,7 +484,7 @@ int CgroupSubsystem::active_processor_count() {
   // We use a cache with a timeout to avoid performing expensive
   // computations in the event this function is called frequently.
   // [See 8227006].
-  CachingCgroupController<CgroupCpuController*>* contrl = cpu_controller();
+  CachingCgroupController<CgroupCpuController>* contrl = cpu_controller();
   CachedMetric* cpu_limit = contrl->metrics_cache();
   if (!cpu_limit->should_check_metric()) {
     int val = (int)cpu_limit->value();
@@ -509,7 +510,7 @@ int CgroupSubsystem::active_processor_count() {
  *    OSCONTAINER_ERROR for not supported
  */
 jlong CgroupSubsystem::memory_limit_in_bytes() {
-  CachingCgroupController<CgroupMemoryController*>* contrl = memory_controller();
+  CachingCgroupController<CgroupMemoryController>* contrl = memory_controller();
   CachedMetric* memory_limit = contrl->metrics_cache();
   if (!memory_limit->should_check_metric()) {
     return memory_limit->value();
@@ -627,7 +628,7 @@ bool CgroupController::read_numerical_key_value(const char* filename, const char
   for (; line != nullptr; line = fgets(buf, buf_len, fp)) {
     char after_key = line[key_len];
     if (strncmp(line, key, key_len) == 0
-          && isspace(after_key) != 0
+          && isspace((unsigned char) after_key) != 0
           && after_key != '\n') {
       // Skip key, skip space
       const char* value_substr = line + key_len + 1;

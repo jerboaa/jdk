@@ -34,12 +34,13 @@
 class CgroupV1Controller: public CgroupController {
   private:
     /* mountinfo contents */
-    char *_root;
-    char *_mount_point;
+    char* _root;
+    char* _mount_point;
     /* Constructed subsystem directory */
-    char *_path;
+    char* _path;
 
   public:
+<<<<<<< HEAD
     CgroupV1Controller(char *root, char *mountpoint) {
       _root = os::strdup(root);
       _mount_point = os::strdup(mountpoint);
@@ -51,11 +52,33 @@ class CgroupV1Controller: public CgroupController {
     char *subsystem_path() { return _path; }
     bool needs_hierarchy_adjustment();
     char *mount_point() { return _mount_point; }
+=======
+    CgroupV1Controller(char *root, char *mountpoint) : _root(os::strdup(root)),
+                                                       _mount_point(os::strdup(mountpoint)),
+                                                       _path(nullptr) {
+    }
+    // Shallow copy constructor
+    CgroupV1Controller(const CgroupV1Controller& o) : _root(o._root),
+                                                      _mount_point(o._mount_point),
+                                                      _path(o._path) {
+    }
+    ~CgroupV1Controller() {
+      // At least one subsystem controller exists with paths to malloc'd path
+      // names
+    }
+
+    void set_subsystem_path(char *cgroup_path);
+    char *subsystem_path() override { return _path; }
+>>>>>>> jdk-8331560-cgroup-controller-delegation
 };
 
-class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryController {
+class CgroupV1MemoryController final : public CgroupMemoryController {
 
+  private:
+    CgroupV1Controller _reader;
+    CgroupV1Controller* reader() { return &_reader; }
   public:
+<<<<<<< HEAD
     jlong read_memory_limit_in_bytes(julong upper_bound);
     jlong memory_usage_in_bytes();
     jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swap);
@@ -70,25 +93,53 @@ class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryCo
     void print_version_specific_info(outputStream* st, julong host_mem);
     bool needs_hierarchy_adjustment();
     CgroupV1MemoryController* adjust_controller(julong phys_mem);
+=======
+    bool is_hierarchical() { return _uses_mem_hierarchy; }
+    void set_subsystem_path(char *cgroup_path);
+    jlong read_memory_limit_in_bytes(julong upper_bound) override;
+    jlong memory_usage_in_bytes() override;
+    jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swap) override;
+    jlong memory_and_swap_usage_in_bytes(julong host_mem, julong host_swap) override;
+    jlong memory_soft_limit_in_bytes(julong upper_bound) override;
+    jlong memory_max_usage_in_bytes() override;
+    jlong rss_usage_in_bytes() override;
+    jlong cache_usage_in_bytes() override;
+    jlong kernel_memory_usage_in_bytes();
+    jlong kernel_memory_limit_in_bytes(julong host_mem);
+    jlong kernel_memory_max_usage_in_bytes();
+    void print_version_specific_info(outputStream* st, julong host_mem) override;
+>>>>>>> jdk-8331560-cgroup-controller-delegation
   private:
     jlong read_mem_swappiness();
     jlong read_mem_swap(julong host_total_memsw);
 
   public:
+<<<<<<< HEAD
     CgroupV1MemoryController(char *root, char *mountpoint) : CgroupV1Controller(root, mountpoint) {
+=======
+    CgroupV1MemoryController(CgroupV1Controller reader)
+      : _reader(reader),
+        _uses_mem_hierarchy(false) {
+>>>>>>> jdk-8331560-cgroup-controller-delegation
     }
 
 };
 
-class CgroupV1CpuController: public CgroupV1Controller, public CgroupCpuController {
+class CgroupV1CpuController final : public CgroupCpuController {
+
+  private:
+    CgroupV1Controller _reader;
+    CgroupV1Controller* reader() { return &_reader; }
+  public:
+    int cpu_quota() override;
+    int cpu_period() override;
+    int cpu_shares() override;
+    void set_subsystem_path(char *cgroup_path) {
+      reader()->set_subsystem_path(cgroup_path);
+    }
 
   public:
-    int cpu_quota();
-    int cpu_period();
-    int cpu_shares();
-
-  public:
-    CgroupV1CpuController(char *root, char *mountpoint) : CgroupV1Controller(root, mountpoint) {
+    CgroupV1CpuController(CgroupV1Controller reader) : _reader(reader) {
     }
     bool needs_hierarchy_adjustment();
     CgroupV1CpuController* adjust_controller(int host_cpus);
@@ -112,14 +163,14 @@ class CgroupV1Subsystem: public CgroupSubsystem {
     const char * container_type() {
       return "cgroupv1";
     }
-    CachingCgroupController<CgroupMemoryController*>* memory_controller() { return _memory; }
-    CachingCgroupController<CgroupCpuController*>* cpu_controller() { return _cpu; }
+    CachingCgroupController<CgroupMemoryController>* memory_controller() { return _memory; }
+    CachingCgroupController<CgroupCpuController>* cpu_controller() { return _cpu; }
 
   private:
     /* controllers */
-    CachingCgroupController<CgroupMemoryController*>* _memory = nullptr;
+    CachingCgroupController<CgroupMemoryController>* _memory = nullptr;
     CgroupV1Controller* _cpuset = nullptr;
-    CachingCgroupController<CgroupCpuController*>* _cpu = nullptr;
+    CachingCgroupController<CgroupCpuController>* _cpu = nullptr;
     CgroupV1Controller* _cpuacct = nullptr;
     CgroupV1Controller* _pids = nullptr;
 
