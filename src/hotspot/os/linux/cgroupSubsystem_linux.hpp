@@ -250,8 +250,6 @@ class CgroupSubsystem: public CHeapObj<mtInternal> {
     jlong rss_usage_in_bytes();
     jlong cache_usage_in_bytes();
     void print_version_specific_info(outputStream* st);
-    static CgroupMemoryController* adjust_controller(CgroupMemoryController* m);
-    static CgroupCpuController* adjust_controller(CgroupCpuController* c);
 };
 
 // Utility class for storing info retrieved from /proc/cgroups,

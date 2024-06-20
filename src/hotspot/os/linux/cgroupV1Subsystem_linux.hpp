@@ -28,6 +28,7 @@
 #include "runtime/os.hpp"
 #include "memory/allocation.hpp"
 #include "cgroupSubsystem_linux.hpp"
+#include "cgroupUtil_linux.hpp"
 
 // Cgroups version 1 specific implementation
 
@@ -150,14 +151,14 @@ class CgroupV1Subsystem: public CgroupSubsystem {
                       CgroupV1CpuController* cpu,
                       CgroupV1Controller* cpuacct,
                       CgroupV1Controller* pids,
-                      CgroupV1MemoryController* memory) {
-      _cpuset = cpuset;
-      CgroupCpuController* c = adjust_controller(cpu);
-      _cpu = new CachingCgroupController<CgroupCpuController>(c);
-      _cpuacct = cpuacct;
-      _pids = pids;
-      CgroupMemoryController* m = adjust_controller(memory);
-      _memory = new CachingCgroupController<CgroupMemoryController>(m);
+                      CgroupV1MemoryController* memory) :
+      _memory(new CachingCgroupController<CgroupMemoryController>(
+                                         CgroupUtil::adjust_controller(memory))),
+      _cpuset(cpuset),
+      _cpu(new CachingCgroupController<CgroupCpuController>(
+                                         CgroupUtil::adjust_controller(cpu))),
+      _cpuacct(cpuacct),
+      _pids(pids) {
     }
 };
 

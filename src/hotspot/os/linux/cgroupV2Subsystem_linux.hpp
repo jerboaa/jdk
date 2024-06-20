@@ -26,6 +26,7 @@
 #define CGROUP_V2_SUBSYSTEM_LINUX_HPP
 
 #include "cgroupSubsystem_linux.hpp"
+#include "cgroupUtil_linux.hpp"
 
 class CgroupV2Controller: public CgroupController {
   private:
@@ -108,11 +109,11 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     CgroupV2Subsystem(CgroupV2MemoryController * memory,
                       CgroupV2CpuController* cpu,
                       CgroupV2Controller unified) :
-                         _unified(unified) {
-      CgroupMemoryController* m = adjust_controller(memory);
-      _memory = new CachingCgroupController<CgroupMemoryController>(m);
-      CgroupCpuController* c = adjust_controller(cpu);
-      _cpu = new CachingCgroupController<CgroupCpuController>(c);
+                         _unified(unified),
+                         _memory(new CachingCgroupController<CgroupMemoryController>(
+                                         CgroupUtil::adjust_controller(memory))),
+                         _cpu(new CachingCgroupController<CgroupCpuController>(
+                                         CgroupUtil::adjust_controller(cpu))) {
     }
 
     jlong read_memory_limit_in_bytes();
