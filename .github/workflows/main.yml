@@ -168,7 +168,7 @@ jobs:
       gcc-major-version: '10'
       configure-arguments: ${{ github.event.inputs.configure-arguments }}
       make-arguments: ${{ github.event.inputs.make-arguments }}
-      extra-conf-options: '--enable-runtime-link-image --enable-keep-packaged-modules'
+      extra-conf-options: '--enable-linkable-runtime --enable-keep-packaged-modules'
     if: needs.prepare.outputs.linux-x64 == 'true'
 
   build-linux-x86-hs:
@@ -275,7 +275,7 @@ jobs:
       runs-on: 'macos-13'
       xcode-toolset-version: '14.3.1'
       configure-arguments: ${{ github.event.inputs.configure-arguments }}
-      extra-conf-options: '--enable-runtime-link-image --enable-keep-packaged-modules'
+      extra-conf-options: '--enable-linkable-runtime --enable-keep-packaged-modules'
       make-arguments: ${{ github.event.inputs.make-arguments }}
     if: needs.prepare.outputs.macos-x64 == 'true'
 
@@ -288,7 +288,7 @@ jobs:
       runs-on: 'macos-14'
       xcode-toolset-version: '14.3.1'
       configure-arguments: ${{ github.event.inputs.configure-arguments }}
-      extra-conf-options: '--enable-runtime-link-image --enable-keep-packaged-modules'
+      extra-conf-options: '--enable-linkable-runtime --enable-keep-packaged-modules'
       make-arguments: ${{ github.event.inputs.make-arguments }}
     if: needs.prepare.outputs.macos-aarch64 == 'true'
 
@@ -301,7 +301,7 @@ jobs:
       msvc-toolset-version: '14.29'
       msvc-toolset-architecture: 'x86.x64'
       configure-arguments: ${{ github.event.inputs.configure-arguments }}
-      extra-conf-options: '--enable-runtime-link-image --enable-keep-packaged-modules'
+      extra-conf-options: '--enable-linkable-runtime --enable-keep-packaged-modules'
       make-arguments: ${{ github.event.inputs.make-arguments }}
     if: needs.prepare.outputs.windows-x64 == 'true'
 
