@@ -91,7 +91,7 @@ class CgroupV1MemoryController final : public CgroupMemoryController {
     jlong read_mem_swap(julong host_total_memsw);
 
   public:
-    CgroupV1MemoryController(CgroupV1Controller reader)
+    CgroupV1MemoryController(const CgroupV1Controller& reader)
       : _reader(reader) {
     }
 
@@ -111,7 +111,7 @@ class CgroupV1CpuController final : public CgroupCpuController {
     }
 
   public:
-    CgroupV1CpuController(CgroupV1Controller reader) : _reader(reader) {
+    CgroupV1CpuController(const CgroupV1Controller& reader) : _reader(reader) {
     }
     bool needs_hierarchy_adjustment();
     CgroupV1CpuController* adjust_controller(int host_cpus);
@@ -129,8 +129,6 @@ class CgroupV1Subsystem: public CgroupSubsystem {
 
     jlong pids_max();
     jlong pids_current();
-
-    void print_version_specific_info(outputStream* st);
 
     const char * container_type() {
       return "cgroupv1";
