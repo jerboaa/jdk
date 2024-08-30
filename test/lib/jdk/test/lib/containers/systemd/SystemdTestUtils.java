@@ -139,6 +139,7 @@ public class SystemdTestUtils {
 
             if (runOpts.sliceDMemoryLimit != null) {
                 Path memoryConfig = sliceDotDDir.resolve(Path.of(SLICE_D_MEM_CONFIG_FILE));
+                System.out.println("memory-limit = " + memoryConfig);
                 Files.writeString(memoryConfig, getMemoryDSliceContent(runOpts));
             }
             if (runOpts.sliceDCpuLimit != null) {
