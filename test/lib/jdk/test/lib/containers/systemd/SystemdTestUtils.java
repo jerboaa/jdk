@@ -36,6 +36,9 @@ import jdk.test.lib.process.OutputAnalyzer;
 
 public class SystemdTestUtils {
 
+    private static final String SLICE_NAMESPACE_PREFIX = "jdk_internal";
+    private static final String SLICE_D_MEM_CONFIG_FILE = "memory-limit.conf";
+    private static final String SLICE_D_CPU_CONFIG_FILE = "cpu-limit.conf";
     private static final Path SYSTEMD_CONFIG_HOME = Path.of("/", "etc", "systemd", "system");
 
     // Specifies how many lines to copy from child STDOUT to main test output.
@@ -44,7 +47,7 @@ public class SystemdTestUtils {
     // diagnostic information.
     private static final int MAX_LINES_TO_COPY_FOR_CHILD_STDOUT = 100;
 
-    public record ResultFiles(Path memory, Path cpu) {}
+    public record ResultFiles(Path memory, Path cpu, Path sliceDotDDir) {}
 
     /**
      * Run Java inside a systemd slice with specified parameters and options.
@@ -88,6 +91,15 @@ public class SystemdTestUtils {
         String memorySliceContent = getMemorySlice(runOpts, sliceName);
         String cpuSliceContent = getCpuSlice(runOpts, sliceName);
 
+        Path sliceDotDDir = null;
+        if (runOpts.hasSliceDLimit()) {
+            String dirName = String.format("%s.slice.d", SLICE_NAMESPACE_PREFIX);
+            sliceDotDDir = SYSTEMD_CONFIG_HOME.resolve(Path.of(dirName));
+            Files.createDirectory(sliceDotDDir);
+
+            // TODO create cpu/memory configs
+        }
+
         Path memory, cpu;
         try {
             // memory slice
@@ -101,13 +113,13 @@ public class SystemdTestUtils {
 
         systemdDaemonReload(cpu);
 
-        return new ResultFiles(memory, cpu);
+        return new ResultFiles(memory, cpu, sliceDotDDir);
     }
 
     private static String sliceName(SystemdRunOptions runOpts) {
         // Slice name may include '-' which is a hierarchical slice indicator.
         // Replace '-' with '_' to avoid side-effects.
-        return "jdk_internal_" + runOpts.sliceName.replace("-", "_");
+        return SLICE_NAMESPACE_PREFIX + "-" + runOpts.sliceName.replace("-", "_");
     }
 
     private static String sliceNameCpu(SystemdRunOptions runOpts) {
