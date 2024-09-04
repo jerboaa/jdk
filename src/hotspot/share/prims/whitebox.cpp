@@ -158,13 +158,6 @@ class VM_WhiteBoxOperation : public VM_Operation {
   bool allow_nested_vm_operations() const        { return true; }
 };
 
-#ifdef LINUX
-class Whitebox_Linux : public os::Linux {
- public:
-  static int host_cpus() { return os::Linux::active_processor_count(); }
-};
-#endif
-
 
 WB_ENTRY(jlong, WB_GetObjectAddress(JNIEnv* env, jobject o, jobject obj))
   return (jlong)(void*)JNIHandles::resolve(obj);
@@ -2507,7 +2500,7 @@ WB_END
 // Available cpus of the host machine, Linux only.
 // Used in container testing.
 WB_ENTRY(jint, WB_HostCPUs(JNIEnv* env, jobject o))
-  LINUX_ONLY(return Whitebox_Linux::host_cpus();)
+  LINUX_ONLY(return os::Linux::active_processor_count();)
   return -1; // Not used/implemented on other platforms
 WB_END
 
@@ -2596,7 +2589,7 @@ WB_ENTRY(void, WB_VerifyFrames(JNIEnv* env, jobject wb, jboolean log, jboolean u
   for (StackFrameStream fst(JavaThread::current(), update_map, true); !fst.is_done(); fst.next()) {
     frame* current_frame = fst.current();
     if (log) {
-      current_frame->print_value_on(&st, nullptr);
+      current_frame->print_value_on(&st);
     }
     current_frame->verify(fst.register_map());
   }
