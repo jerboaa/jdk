@@ -158,6 +158,7 @@ class VM_WhiteBoxOperation : public VM_Operation {
   bool allow_nested_vm_operations() const        { return true; }
 };
 
+
 WB_ENTRY(jlong, WB_GetObjectAddress(JNIEnv* env, jobject o, jobject obj))
   return (jlong)(void*)JNIHandles::resolve(obj);
 WB_END
