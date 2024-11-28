@@ -63,6 +63,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import jdk.internal.module.ModuleBootstrap;
 import jdk.internal.module.ModulePath;
 import jdk.internal.module.ModuleReferenceImpl;
 import jdk.internal.module.ModuleResolution;
@@ -618,6 +619,12 @@ public class JlinkTask {
             // Do not permit linking from run-time image and also including jdk.jlink module
             if (cf.findModule(JlinkTask.class.getModule().getName()).isPresent()) {
                 String msg = taskHelper.getMessage("err.runtime.link.jdk.jlink.prohibited");
+                throw new IllegalArgumentException(msg);
+            }
+            // Do not permit linking from run-time image when the current image
+            // is being patched.
+            if (ModuleBootstrap.patcher().hasPatches()) {
+                String msg = taskHelper.getMessage("err.runtime.link.patched.module");
                 throw new IllegalArgumentException(msg);
             }
 
