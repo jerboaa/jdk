@@ -65,7 +65,9 @@ public class CgroupSubsystemFactory {
     private Path cgroupv2MntInfoDouble;
     private Path cgroupv2MntInfoDouble2;
     private Path cgroupv1CgInfoNonZeroHierarchy;
+    private Path cgroupv1CgInfoNonZeroHierarchyNoCpuset;
     private Path cgroupv1MntInfoNonZeroHierarchyOtherOrder;
+    private Path cgroupv1MntInfoNonZeroHierarchyNoCpuset;
     private Path cgroupv1MntInfoNonZeroHierarchy;
     private Path cgroupv1MntInfoDoubleCpuset;
     private Path cgroupv1MntInfoDoubleCpuset2;
@@ -78,6 +80,7 @@ public class CgroupSubsystemFactory {
     private Path cgroupv1MntInfoSystemdOnly;
     private String mntInfoEmpty = "";
     private Path cgroupV1SelfCgroup;
+    private Path cgroupV1SelfCgroupNoCpuset;
     private Path cgroupV2SelfCgroup;
     private Path cgroupV2MntInfoMissingCgroupv2;
     private Path cgroupv1MntInfoMissingMemoryController;
@@ -103,6 +106,7 @@ public class CgroupSubsystemFactory {
             "2:memory:/user.slice/user-15263.slice/user@15263.service\n" +
             "1:name=systemd:/user.slice/user-15263.slice/user@15263.service/gnome-terminal-server.service\n" +
             "0::/user.slice/user-15263.slice/user@15263.service/gnome-terminal-server.service";
+    private String procSelfCgroupHybridContentLineCpuset = "3:cpuset:/\n";
     private String procSelfCgroupV2UnifiedContent = "0::/user.slice/user-1000.slice/session-3.scope";
     private String procSelfCgroupV1JoinControllers =
             "9:freezer:/\n" +
@@ -164,6 +168,7 @@ public class CgroupSubsystemFactory {
             "42 30 0:38 / /sys/fs/cgroup/cpuset rw,nosuid,nodev,noexec,relatime shared:14 - cgroup none rw,seclabel,cpuset\n" +
             "43 30 0:39 / /sys/fs/cgroup/blkio rw,nosuid,nodev,noexec,relatime shared:15 - cgroup none rw,seclabel,blkio\n" +
             "44 30 0:40 / /sys/fs/cgroup/freezer rw,nosuid,nodev,noexec,relatime shared:16 - cgroup none rw,seclabel,freezer\n";
+    private String mntInfoHybridLineCpuset = "42 30 0:38 / /sys/fs/cgroup/cpuset rw,nosuid,nodev,noexec,relatime shared:14 - cgroup none rw,seclabel,cpuset\n";
     private String mntInfoHybridRest = cgroupv1MountInfoLineMemory + mntInfoHybridStub;
     private String mntInfoHybridMissingMemory = mntInfoHybridStub;
     private String mntInfoHybrid = cgroupV2LineHybrid + mntInfoHybridRest;
@@ -206,6 +211,7 @@ public class CgroupSubsystemFactory {
             "net_prio    5   1   1\n" +
             "hugetlb 6   1   1\n" +
             "pids    9   80  1";  // hierarchy has to match procSelfCgroupHybridContent
+    private String cgroupsNonZeroHierarchyCpusetLine = "cpuset  3   1   1\n";
     private String mntInfoCgroupsV2Only =
             "28 21 0:25 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 none rw,seclabel,nsdelegate\n";
     private String mntInfoCgroupsV2MoreLine =
@@ -293,6 +299,15 @@ public class CgroupSubsystemFactory {
 
             cgroupV1SelfCgroup = Paths.get(existingDirectory.toString(), "cgroup_self_hybrid");
             Files.writeString(cgroupV1SelfCgroup, procSelfCgroupHybridContent);
+
+            cgroupv1CgInfoNonZeroHierarchyNoCpuset = Paths.get(existingDirectory.toString(), "cgroups_non_zero_no_cpuset");
+            Files.writeString(cgroupv1CgInfoNonZeroHierarchyNoCpuset, cgroupsNonZeroHierarchy.replace(cgroupsNonZeroHierarchyCpusetLine, ""));
+
+            cgroupv1MntInfoNonZeroHierarchyNoCpuset = Paths.get(existingDirectory.toString(), "mountinfo_non_zero_no_cpuset");
+            Files.writeString(cgroupv1MntInfoNonZeroHierarchyNoCpuset, mntInfoHybrid.replace(mntInfoHybridLineCpuset, ""));
+
+            cgroupV1SelfCgroupNoCpuset = Paths.get(existingDirectory.toString(), "cgroup_self_hybrid");
+            Files.writeString(cgroupV1SelfCgroupNoCpuset, procSelfCgroupHybridContent.replace(procSelfCgroupHybridContentLineCpuset, ""));
 
             cgroupV2SelfCgroup = Paths.get(existingDirectory.toString(), "cgroup_self_v2");
             Files.writeString(cgroupV2SelfCgroup, procSelfCgroupV2UnifiedContent);
@@ -531,6 +546,16 @@ public class CgroupSubsystemFactory {
         System.out.println("testCgroupv2ControllerFileExtraWhitespace PASSED!");
     }
 
+    public void testCgroupv1CpusetMissingFromProcCgroups(WhiteBox wb) {
+        String procCgroups = cgroupv1CgInfoNonZeroHierarchyNoCpuset.toString();
+        String procSelfCgroup = cgroupV1SelfCgroupNoCpuset.toString();
+        String procSelfMountinfo = cgroupv1MntInfoNonZeroHierarchyNoCpuset.toString();
+        int retval = wb.validateCgroup(false, procCgroups, procSelfCgroup, procSelfMountinfo);
+        Asserts.assertEQ(INVALID_CGROUPS_V1, retval, "Required cpuset controller missing in /proc/cgroups. Invalid.");
+        Asserts.assertFalse(isValidCgroup(retval));
+        System.out.println("testCgroupv1CpusetMissingFromProcCgroups PASSED!");
+    }
+
     public static void main(String[] args) throws Exception {
         WhiteBox wb = WhiteBox.getWhiteBox();
         CgroupSubsystemFactory test = new CgroupSubsystemFactory();
@@ -562,6 +587,7 @@ public class CgroupSubsystemFactory {
             test.testCgroupv1MultipleControllerMounts(wb, test.cgroupv1MntInfoDoublePids2);
             test.testCgroupv1JoinControllerCombo(wb);
             test.testNonZeroHierarchyOnlyFreezer(wb);
+            test.testCgroupv1CpusetMissingFromProcCgroups(wb);
         } finally {
             test.teardown();
         }
