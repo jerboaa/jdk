@@ -551,7 +551,7 @@ public class CgroupSubsystemFactory {
         String procSelfCgroup = cgroupV1SelfCgroupNoCpuset.toString();
         String procSelfMountinfo = cgroupv1MntInfoNonZeroHierarchyNoCpuset.toString();
         int retval = wb.validateCgroup(false, procCgroups, procSelfCgroup, procSelfMountinfo);
-        Asserts.assertEQ(INVALID_CGROUPS_V1, retval, "Required cpuset controller missing in /proc/cgroups. Invalid.");
+        Asserts.assertEQ(INVALID_CGROUPS_GENERIC, retval, "Required cpuset controller missing in /proc/cgroups. Invalid.");
         Asserts.assertFalse(isValidCgroup(retval));
         System.out.println("testCgroupv1CpusetMissingFromProcCgroups PASSED!");
     }
