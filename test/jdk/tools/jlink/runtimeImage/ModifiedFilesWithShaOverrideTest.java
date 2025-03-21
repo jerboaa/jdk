@@ -67,15 +67,24 @@ public class ModifiedFilesWithShaOverrideTest extends ModifiedFilesTest {
     protected Path modifyFileInImage(Path jmodLessImg) {
         try {
             Path libJVM = jmodLessImg.resolve("lib").resolve("server").resolve(System.mapLibraryName("jvm"));
+            String shaBefore = buildSHA512(libJVM);
             List<String> objcopy = new ArrayList<>();
             objcopy.add("objcopy");
-            objcopy.add("--strip-debug");
+            // The OpenJDK build doesn't strip all symbols by default. In order
+            // to get a different libjvm.so file, we strip everything. The
+            // expectation is for the sha to be different before and after the
+            // stripping of the file.
+            objcopy.add("--strip-all");
             objcopy.add(libJVM.toString());
             ProcessBuilder builder = new ProcessBuilder(objcopy);
             Process p = builder.start();
             int returnVal = p.waitFor();
             if (returnVal != 0) {
-                throw new SkippedException("Stripping of libjvm failed");
+                throw new SkippedException("Stripping of libjvm failed. Is objcopy installed?");
+            }
+            String shaAfter = buildSHA512(libJVM);
+            if (shaBefore.equals(shaAfter)) {
+                throw new SkippedException("Binary file would be the same before after - test skipped");
             }
             return libJVM;
         } catch (IOException | InterruptedException e) {
@@ -87,7 +96,8 @@ public class ModifiedFilesWithShaOverrideTest extends ModifiedFilesTest {
     void testAndAssert(Path modifiedFile, Helper helper, Path initialImage) throws Exception {
         String strippedSha = buildSHA512(modifiedFile);
         Path relativePath = initialImage.relativize(modifiedFile);
-        String extraJlinkOpt = SHA_OVERRIDE_FLAG + "=" + relativePath.toString() + ":" + strippedSha;
+        String overrideVal = String.format("%s|%s|%s", "java.base", relativePath.toString(), strippedSha);
+        String extraJlinkOpt = SHA_OVERRIDE_FLAG + "=" + overrideVal;
         CapturingHandler handler = new CapturingHandler();
         jlinkUsingImage(new JlinkSpecBuilder()
                                 .helper(helper)

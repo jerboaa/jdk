@@ -45,6 +45,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -86,11 +87,15 @@ public class JRTArchive implements Archive {
      *        install aborts the link.
      * @param perModDiff The lib/modules (a.k.a jimage) diff for this module,
      *                   possibly an empty list if there are no differences.
+     * @param altHashSums A map of per-module hash sums to allow for binaries
+     *                    and dynamic libraries.
+     * @param taskHelper The task helper reference.
      */
     JRTArchive(String module,
                Path path,
                boolean errorOnModifiedFile,
                List<ResourceDiff> perModDiff,
+               Map<String, Set<String>> altHashSums,
                TaskHelper taskHelper) {
         this.module = module;
         this.path = path;
@@ -217,7 +222,7 @@ public class JRTArchive implements Archive {
 
                         // Read from the base JDK image.
                         Path path = BASE.resolve(m.resPath);
-                        if (shaSumMismatch(path, m.hashOrTarget, m.symlink)) {
+                        if (shaSumMismatch(path, Set.of(m.hashOrTarget), m.symlink)) {
                             if (errorOnModifiedFile) {
                                 String msg = taskHelper.getMessage("err.runtime.link.modified.file", path.toString());
                                 IOException cause = new IOException(msg);
@@ -239,14 +244,12 @@ public class JRTArchive implements Archive {
         }
     }
 
-    static boolean shaSumMismatch(Path res, String expectedSha, boolean isSymlink) {
+    static boolean shaSumMismatch(Path res, Set<String> expectedShas, boolean isSymlink) {
         if (isSymlink) {
             return false;
         }
         // handle non-symlink resources
         try {
-            HexFormat format = HexFormat.of();
-            byte[] expected = format.parseHex(expectedSha);
             MessageDigest digest = MessageDigest.getInstance("SHA-512");
             try (InputStream is = Files.newInputStream(res)) {
                 byte[] buf = new byte[1024];
@@ -256,7 +259,9 @@ public class JRTArchive implements Archive {
                 }
             }
             byte[] actual = digest.digest();
-            return !MessageDigest.isEqual(expected, actual);
+            // Convert actual to string
+            String strActual = HexFormat.of().formatHex(actual);
+            return !expectedShas.contains(strActual);
         } catch (Exception e) {
             throw new AssertionError("SHA-512 sum check failed!", e);
         }
