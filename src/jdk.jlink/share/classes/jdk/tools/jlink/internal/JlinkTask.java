@@ -518,7 +518,7 @@ public class JlinkTask {
                 throw taskHelper.newBadArgs("err.sha.overrides.bad.module", tokens[0]);
             }
             // TreeSet to disallow null values
-            Set<String> shaSumsPerFile = perModuleMap.computeIfAbsent(tokens[0], k -> new TreeSet<>());
+            Set<String> shaSumsPerFile = perModuleMap.computeIfAbsent(tokens[1], k -> new TreeSet<>());
             shaSumsPerFile.add(tokens[2]);
         }
         return moduleToFiles;

@@ -41,6 +41,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +76,7 @@ public class JRTArchive implements Archive {
     // Maps a module resource path to the corresponding diff to packaged
     // modules for that resource (if any)
     private final Map<String, ResourceDiff> resDiff;
+    private final Map<String, Set<String>> altHashSums;
     private final boolean errorOnModifiedFile;
     private final TaskHelper taskHelper;
 
@@ -110,6 +112,7 @@ public class JRTArchive implements Archive {
         this.resDiff = Objects.requireNonNull(perModDiff).stream()
                             .collect(Collectors.toMap(ResourceDiff::getName, Function.identity()));
         this.taskHelper = taskHelper;
+        this.altHashSums = altHashSums;
     }
 
     @Override
@@ -222,7 +225,14 @@ public class JRTArchive implements Archive {
 
                         // Read from the base JDK image.
                         Path path = BASE.resolve(m.resPath);
-                        if (shaSumMismatch(path, Set.of(m.hashOrTarget), m.symlink)) {
+                        // FIXME: Do this only for binaries/shared libs?
+                        Set<String> shaSums = new HashSet<>();
+                        shaSums.add(m.hashOrTarget);
+                        Set<String> extra = altHashSums.get(m.resPath);
+                        if (extra != null) {
+                            shaSums.addAll(extra);
+                        }
+                        if (shaSumMismatch(path, shaSums, m.symlink)) {
                             if (errorOnModifiedFile) {
                                 String msg = taskHelper.getMessage("err.runtime.link.modified.file", path.toString());
                                 IOException cause = new IOException(msg);
