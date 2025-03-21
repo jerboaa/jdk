@@ -505,7 +505,12 @@ public class JlinkTask {
         Map<String, Map<String, Set<String>>> moduleToFiles = new HashMap<>();
         modules.forEach(m -> { moduleToFiles.put(m, new HashMap<>());});
         for (String t: shaOverrides) {
-            String[] tokens = t.split("\\|");
+            String trimmed = t.trim();
+            if (trimmed.startsWith("#")) {
+                // skip comment lines
+                continue;
+            }
+            String[] tokens = trimmed.split("\\|");
             if (tokens.length != 3) {
                 throw taskHelper.newBadArgs("err.sha.overrides.bad.format", t);
             }
