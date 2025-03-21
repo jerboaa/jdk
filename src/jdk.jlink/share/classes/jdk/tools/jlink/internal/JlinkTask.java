@@ -191,7 +191,10 @@ public class JlinkTask {
         // be used for linking from the run-time image.
         new Option<JlinkTask>(false, (task, opt, arg) -> {
             task.options.generateLinkableRuntime = true;
-        }, true, "--generate-linkable-runtime")
+        }, true, "--generate-linkable-runtime"),
+        new Option<JlinkTask>(true, (task, opt, arg) -> {
+            task.options.shaOverrides = arg;
+        }, true, "--sha-overrides"),
     };
 
 
@@ -235,6 +238,7 @@ public class JlinkTask {
         boolean suggestProviders = false;
         boolean ignoreModifiedRuntime = false;
         boolean generateLinkableRuntime = false;
+        String shaOverrides = null;
     }
 
     public static final String OPTIONS_RESOURCE = "jdk/tools/jlink/internal/options";

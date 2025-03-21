@@ -51,7 +51,7 @@ import tests.Helper;
  */
 public class ModifiedFilesWithShaOverrideTest extends ModifiedFilesTest {
 
-    private static final String SHA_OVERRIDE_FLAG = "--sha-overrides=";
+    private static final String SHA_OVERRIDE_FLAG = "--sha-overrides";
 
     public static void main(String[] args) throws Exception {
         ModifiedFilesWithShaOverrideTest test = new ModifiedFilesWithShaOverrideTest();
