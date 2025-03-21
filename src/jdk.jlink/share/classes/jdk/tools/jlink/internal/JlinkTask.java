@@ -28,7 +28,6 @@ import static jdk.tools.jlink.internal.TaskHelper.JLINK_BUNDLE;
 
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
@@ -60,7 +59,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -202,16 +200,22 @@ public class JlinkTask {
                     throw taskHelper.newBadArgs("err.sha.overrides.multiple");
                 }
                 Path file = Paths.get(arg.substring(1));
-                try {
-                    Files.readAllLines(file).stream()
-                        .forEach(task.options.shaOverrides::add);
-                } catch (FileNotFoundException e) {
-                    throw taskHelper.newBadArgs("err.sha.overrides.fnf", file.toString());
-                } catch (IOException e) {
-                    throw taskHelper.newBadArgs("err.sha.overrides.freaderr", file.toString());
+                // Ignore non-existing sha overrides file.
+                //
+                // This is to allow for custom builds needing to optionally
+                // support run-time image links on (possibly) modified
+                // binaries/debuginfo files done after the JDK build
+                if (Files.exists(file)) {
+                    try {
+                        Files.readAllLines(file).stream()
+                            .forEach(task.options.shaOverrides::add);
+                    } catch (IOException e) {
+                        throw taskHelper.newBadArgs("err.sha.overrides.freaderr", file.toString());
+                    }
                 }
             } else {
-                // Comma separated values on CLI. Possible multiples.
+                // Allow multiple values, separated by comma in addition to
+                // multiple times the same option.
                 Arrays.asList(arg.split(",")).stream()
                     .forEach(task.options.shaOverrides::add);
             }
@@ -486,7 +490,7 @@ public class JlinkTask {
 
         LinkableRuntimeImage.Config linkableRuntimeConfig = new LinkableRuntimeImage.Config(
                 options.ignoreModifiedRuntime,
-                isLinkFromRuntime ? buildShaSumMap(finder, taskHelper, options.shaOverrides) : Map.of());
+                isLinkFromRuntime ? buildShaSumMap(taskHelper, options.shaOverrides) : null);
         return new JlinkConfiguration(options.output,
                                       roots,
                                       finder,
@@ -495,15 +499,9 @@ public class JlinkTask {
                                       options.generateLinkableRuntime);
     }
 
-    private Map<String, Map<String, Set<String>>> buildShaSumMap(ModuleFinder finder,
-                                                                 TaskHelper taskHelper,
+    private Map<String, Map<String, Set<String>>> buildShaSumMap(TaskHelper taskHelper,
                                                                  Set<String> shaOverrides) throws BadArgs {
-        Set<String> modules = finder.findAll().stream()
-                                              .map(ModuleReference::descriptor)
-                                              .map(ModuleDescriptor::name)
-                                              .collect(Collectors.toSet());
         Map<String, Map<String, Set<String>>> moduleToFiles = new HashMap<>();
-        modules.forEach(m -> { moduleToFiles.put(m, new HashMap<>());});
         for (String t: shaOverrides) {
             String trimmed = t.trim();
             if (trimmed.startsWith("#")) {
@@ -518,12 +516,8 @@ public class JlinkTask {
             //    <module-name>
             //    <file-path>
             //    <SHA-512-sum>
-            Map<String, Set<String>> perModuleMap = moduleToFiles.get(tokens[0]);
-            if (perModuleMap == null) {
-                throw taskHelper.newBadArgs("err.sha.overrides.bad.module", tokens[0]);
-            }
-            // TreeSet to disallow null values
-            Set<String> shaSumsPerFile = perModuleMap.computeIfAbsent(tokens[1], k -> new TreeSet<>());
+            Map<String, Set<String>> perModuleMap = moduleToFiles.computeIfAbsent(tokens[0], k -> new HashMap<>());
+            Set<String> shaSumsPerFile = perModuleMap.computeIfAbsent(tokens[1], k -> new HashSet<>());
             shaSumsPerFile.add(tokens[2]);
         }
         return moduleToFiles;

@@ -89,8 +89,8 @@ public class JRTArchive implements Archive {
      *        install aborts the link.
      * @param perModDiff The lib/modules (a.k.a jimage) diff for this module,
      *                   possibly an empty list if there are no differences.
-     * @param altHashSums A map of per-module hash sums to allow for binaries
-     *                    and dynamic libraries.
+     * @param altHashSums A map of alternative hash sums for files in
+     *                    a module, possibly empty.
      * @param taskHelper The task helper reference.
      */
     JRTArchive(String module,
@@ -225,7 +225,14 @@ public class JRTArchive implements Archive {
 
                         // Read from the base JDK image.
                         Path path = BASE.resolve(m.resPath);
-                        // FIXME: Do this only for binaries/shared libs?
+                        // Allow for additional hash sums so as to support
+                        // file modifications done after jlink has run at build
+                        // time. For example for Windows builds done with
+                        // --with-external-symbols-in-bundles=public or
+                        // distribution builds, where some post-processing happens
+                        // on produced binaries and libraries invalidating the
+                        // hash sum included in the jdk.jlink module for those
+                        // files at jlink-time
                         Set<String> shaSums = new HashSet<>();
                         shaSums.add(m.hashOrTarget);
                         Set<String> extra = altHashSums.get(m.resPath);

@@ -87,7 +87,8 @@ public class LinkableRuntimeImage {
                               path,
                               !config.ignoreModifiedRuntime,
                               perModuleDiff,
-                              config.altHashSums.get(module),
+                              // Empty map if no alternative sha sums
+                              config.altHashSums.computeIfAbsent(module, k -> Map.of()),
                               taskHelper);
     }
 
