@@ -112,11 +112,10 @@ class CgroupV2MemoryController final: public CgroupMemoryController {
   private:
     CgroupV2Controller _reader;
     CgroupV2Controller* reader() { return &_reader; }
-    bool read_memory_limit_in_bytes(size_t phys_mem, ssize_t& result);
     bool memory_and_swap_limit_in_bytes(size_t phys_mem, size_t host_swap, ssize_t& result);
     bool memory_and_swap_usage_in_bytes(size_t host_mem, size_t host_swap, size_t& result);
-    bool memory_soft_limit_in_bytes(size_t phys_mem, ssize_t& value);
-    bool memory_throttle_limit_in_bytes(ssize_t& value);
+    bool memory_soft_limit_in_bytes(size_t phys_mem, size_t& value);
+    bool memory_throttle_limit_in_bytes(size_t& value);
     bool memory_usage_in_bytes(size_t& value);
     bool memory_max_usage_in_bytes(size_t& value);
     bool rss_usage_in_bytes(size_t& value);
@@ -126,7 +125,7 @@ class CgroupV2MemoryController final: public CgroupMemoryController {
     CgroupV2MemoryController(const CgroupV2Controller& reader) : _reader(reader) {
     }
 
-    ssize_t read_memory_limit_in_bytes(size_t host_mem) override;
+    bool read_memory_limit_in_bytes(size_t host_mem, size_t& result) override;
     ssize_t memory_and_swap_limit_in_bytes(size_t host_mem, size_t host_swap) override;
     ssize_t memory_and_swap_usage_in_bytes(size_t host_mem, size_t host_swap) override;
     ssize_t memory_soft_limit_in_bytes(size_t host_mem) override;
@@ -163,7 +162,7 @@ class CgroupV2Subsystem: public CgroupSubsystem {
     CgroupCpuacctController* _cpuacct = nullptr;
 
     CgroupV2Controller* unified() { return &_unified; }
-    bool pids_max(ssize_t& value);
+    bool pids_max(size_t& value);
     bool pids_current(size_t& value);
 
   public:

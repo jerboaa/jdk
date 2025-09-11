@@ -658,24 +658,31 @@ int CgroupSubsystem::active_processor_count() {
 
 /* memory_limit_in_bytes
  *
- * Return the limit of available memory for this process.
+ * Return the limit of available memory for this process in the provided
+ * size_t reference. If there was no limit value set in the underlying
+ * interface files value_unlimited is returned.
  *
  * return:
- *    memory limit in bytes or
- *    -1 for unlimited (or unavailable)
+ *    false if retrieving the value failed
+ *    true if retrieving the value was successfull and the value was
+ *    set in the 'value' reference.
  */
-ssize_t CgroupSubsystem::memory_limit_in_bytes() {
+bool CgroupSubsystem::memory_limit_in_bytes(size_t& value) {
   CachingCgroupController<CgroupMemoryController>* contrl = memory_controller();
   CachedMetric* memory_limit = contrl->metrics_cache();
   if (!memory_limit->should_check_metric()) {
-    return memory_limit->value();
+    value = memory_limit->value(); 
+    return true;
   }
   size_t phys_mem = os::Linux::physical_memory();
+  size_t mem_limit = 0;
   log_trace(os, container)("total physical memory: %zu", phys_mem);
-  ssize_t mem_limit = contrl->controller()->read_memory_limit_in_bytes(phys_mem);
+  if (!contrl->controller()->read_memory_limit_in_bytes(phys_mem, mem_limit)) {
+    return false;
+  }
   // Update cached metric to avoid re-reading container settings too often
   memory_limit->set_value(mem_limit, OSCONTAINER_CACHE_TIMEOUT);
-  return mem_limit;
+  return true;
 }
 
 bool CgroupController::read_string(const char* filename, char* buf, size_t buf_size) {
@@ -733,13 +740,13 @@ bool CgroupController::read_number(const char* filename, size_t& result) {
   return false;
 }
 
-bool CgroupController::read_number_handle_max(const char* filename, ssize_t& result) {
+bool CgroupController::read_number_handle_max(const char* filename, size_t& result) {
   char buf[1024];
   bool is_ok = read_string(filename, buf, 1024);
   if (!is_ok) {
     return false;
   }
-  ssize_t val = 0;
+  size_t val = 0;
   if (!limit_from_str(buf, val)) {
     return false;
   }
@@ -813,7 +820,7 @@ bool CgroupController::read_numerical_tuple_value(const char* filename, bool use
   if (matched != 1) {
     return false;
   }
-  ssize_t val = 0;
+  size_t val = 0;
   if (!limit_from_str(token, val)) {
     return false;
   }
@@ -821,21 +828,21 @@ bool CgroupController::read_numerical_tuple_value(const char* filename, bool use
   return true;
 }
 
-bool CgroupController::limit_from_str(char* limit_str, ssize_t& value) {
+bool CgroupController::limit_from_str(char* limit_str, size_t& value) {
   if (limit_str == nullptr) {
     return false;
   }
   // Unlimited memory in cgroups is the literal string 'max' for
   // some controllers, for example the pids controller.
   if (strcmp("max", limit_str) == 0) {
-    value = (ssize_t)-1;
+    value = value_unlimited;
     return true;
   }
   size_t limit;
   if (sscanf(limit_str, "%zu", &limit) != 1) {
     return false;
   }
-  value = static_cast<ssize_t>(limit);
+  value = limit;
   return true;
 }
 

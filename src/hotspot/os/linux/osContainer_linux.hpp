@@ -31,6 +31,9 @@
 #include "utilities/ostream.hpp"
 
 #define OSCONTAINER_ERROR (-2)
+// Some cgroup interface files define the value 'max' for unlimited.
+// Define this constant value to indicate this value.
+const size_t value_unlimited SIZE_MAX;
 
 // 20ms timeout between re-reads of memory limit and _active_processor_count.
 #define OSCONTAINER_CACHE_TIMEOUT (NANOSECS_PER_SEC/50)
@@ -50,7 +53,7 @@ class OSContainer: AllStatic {
   static inline bool is_containerized();
   static const char * container_type();
 
-  static ssize_t memory_limit_in_bytes();
+  static bool memory_limit_in_bytes(size_t& value);
   static ssize_t memory_and_swap_limit_in_bytes();
   static ssize_t memory_and_swap_usage_in_bytes();
   static ssize_t memory_soft_limit_in_bytes();

@@ -89,7 +89,11 @@
     log_trace(os, container)(log_string " failed: %d", OSCONTAINER_ERROR);            \
     return false;                                                                     \
   }                                                                                   \
-  log_trace(os, container)(log_string " is: %zd", retval);                            \
+  if (retval == value_unlimited) {                                                    \
+    log_trace(os, container)(log_string " is: -1");                                   \
+  } else {                                                                            \
+    log_trace(os, container)(log_string " is: %zu", retval);                          \
+  }                                                                                   \
   return true;                                                                        \
 }
 
@@ -126,10 +130,11 @@ class CgroupController: public CHeapObj<mtInternal> {
      * in interface files. Otherwise same as read_number().
      *
      * returns: false if any error occurred. true otherwise and
-     * the parsed value in the range [-1,SSIZE_MAX] is being set in
-     * the provided ssize_t reference. -1 means the value is unlimited.
+     * the parsed value will be set in the provided size_t reference.
+     * When the value was the string 'max' then 'value_unlimited' is
+     * being set as the value.
      */
-    bool read_number_handle_max(const char* filename, ssize_t& result);
+    bool read_number_handle_max(const char* filename, size_t& result);
 
     /* Read a string of at most buf_size - 1 characters from the interface file.
      * The provided buffer must be at least buf_size in size so as to account
@@ -162,23 +167,23 @@ class CgroupController: public CHeapObj<mtInternal> {
     bool read_numerical_key_value(const char* filename, const char* key, size_t& result);
 
   private:
-    static bool limit_from_str(char* limit_str, ssize_t& value);
+    static bool limit_from_str(char* limit_str, size_t& value);
 };
 
 class CachedMetric : public CHeapObj<mtInternal>{
   private:
-    volatile ssize_t _metric;
+    volatile size_t _metric;
     volatile jlong _next_check_counter;
   public:
     CachedMetric() {
-      _metric = -1;
+      _metric = value_unlimited;
       _next_check_counter = min_jlong;
     }
     bool should_check_metric() {
       return os::elapsed_counter() > _next_check_counter;
     }
     ssize_t value() { return _metric; }
-    void set_value(ssize_t value, jlong timeout) {
+    void set_value(size_t value, jlong timeout) {
       _metric = value;
       // Metric is unlikely to change, but we want to remain
       // responsive to configuration changes. A very short grace time
@@ -234,7 +239,7 @@ class CgroupCpuacctController: public CHeapObj<mtInternal> {
 // Pure virtual class representing version agnostic memory controllers
 class CgroupMemoryController: public CHeapObj<mtInternal> {
   public:
-    virtual ssize_t read_memory_limit_in_bytes(size_t host_mem) = 0;
+    virtual bool read_memory_limit_in_bytes(size_t host_mem, size_t& value) = 0;
     virtual ssize_t memory_usage_in_bytes() = 0;
     virtual ssize_t memory_and_swap_limit_in_bytes(size_t host_mem, size_t host_swap) = 0;
     virtual ssize_t memory_and_swap_usage_in_bytes(size_t host_mem, size_t host_swap) = 0;
@@ -254,7 +259,7 @@ class CgroupMemoryController: public CHeapObj<mtInternal> {
 
 class CgroupSubsystem: public CHeapObj<mtInternal> {
   public:
-    ssize_t memory_limit_in_bytes();
+    bool memory_limit_in_bytes(size_t& value);
     int active_processor_count();
 
     virtual ssize_t pids_max() = 0;

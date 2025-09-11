@@ -38,6 +38,8 @@ class CgroupUtil: AllStatic {
     // Given a cpu controller, adjust its path to a point in the hierarchy
     // that represents the closest cpu limit.
     static void adjust_controller(CgroupCpuController* c);
+  private:
+    static size_t get_updated_limit(CgroupMemoryController* m, size_t lowest, size_t phys_mem);
 };
 
 #endif // CGROUP_UTIL_LINUX_HPP

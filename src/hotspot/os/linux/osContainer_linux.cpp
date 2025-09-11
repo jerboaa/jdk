@@ -84,7 +84,9 @@ void OSContainer::init() {
     // We can be in one of two cases:
     //  1.) On a physical Linux system without any limit
     //  2.) On a physical Linux system with a limit enforced by other means (like systemd slice)
-    any_mem_cpu_limit_present = cgroup_subsystem->memory_limit_in_bytes() > 0 ||
+    size_t mem_limit_val = value_unlimited;
+    cgroup_subsystem->memory_limit_in_bytes(mem_limit_val); // discard error and use default
+    any_mem_cpu_limit_present = mem_limit_val < os::Linux::physical_memory() ||
                                      os::Linux::active_processor_count() != cgroup_subsystem->active_processor_count();
     if (any_mem_cpu_limit_present) {
       reason = " because either a cpu or a memory limit is present";
@@ -103,11 +105,9 @@ const char * OSContainer::container_type() {
   return cgroup_subsystem->container_type();
 }
 
-ssize_t OSContainer::memory_limit_in_bytes() {
+bool OSContainer::memory_limit_in_bytes(size_t& value) {
   assert(cgroup_subsystem != nullptr, "cgroup subsystem not available");
-  ssize_t result = cgroup_subsystem->memory_limit_in_bytes();
-  assert(result >= -1, "must be");
-  return result;
+  return cgroup_subsystem->memory_limit_in_bytes(value);
 }
 
 ssize_t OSContainer::memory_and_swap_limit_in_bytes() {

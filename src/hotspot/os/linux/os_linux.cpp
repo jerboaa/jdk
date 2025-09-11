@@ -216,13 +216,14 @@ static bool suppress_primordial_thread_resolution = false;
 
 bool os::Linux::available_memory_in_container(size_t& value) {
   if (OSContainer::is_containerized()) {
-    ssize_t mem_limit = OSContainer::memory_limit_in_bytes();
+    size_t mem_limit = value_unlimited;
+    OSContainer::memory_limit_in_bytes(mem_limit); // discard error use default value
     ssize_t mem_usage;
-    if (mem_limit > 0 && (mem_usage = OSContainer::memory_usage_in_bytes()) < 1) {
+    if (mem_limit != value_unlimited && (mem_usage = OSContainer::memory_usage_in_bytes()) < 1) {
       log_debug(os, container)("container memory usage failed: %zd, using host value", mem_usage);
     }
-    if (mem_limit > 0 && mem_usage > 0) {
-      value = mem_limit > mem_usage ? (size_t)mem_limit - (size_t)mem_usage : 0;
+    if (mem_limit != value_unlimited && mem_usage > 0) {
+      value = static_cast<ssize_t>(mem_limit) > mem_usage ? (size_t)mem_limit - (size_t)mem_usage : 0;
       return true;
     }
   }
@@ -295,8 +296,9 @@ bool os::Linux::free_memory(size_t& value) {
 bool os::total_swap_space(size_t& value) {
   if (OSContainer::is_containerized()) {
     ssize_t memory_and_swap_limit_in_bytes = OSContainer::memory_and_swap_limit_in_bytes();
-    ssize_t memory_limit_in_bytes = OSContainer::memory_limit_in_bytes();
-    if (memory_limit_in_bytes > 0 && memory_and_swap_limit_in_bytes > 0) {
+    size_t memory_limit_in_bytes = value_unlimited;
+    OSContainer::memory_limit_in_bytes(memory_limit_in_bytes);
+    if (memory_limit_in_bytes != value_unlimited && memory_and_swap_limit_in_bytes > 0) {
       value = static_cast<size_t>(memory_and_swap_limit_in_bytes - memory_limit_in_bytes);
       return true;
     }
@@ -336,8 +338,9 @@ bool os::free_swap_space(size_t& value) {
     // might be out of range for ssize_t (which has range [-1,SSIZE_MAX])
 
     ssize_t mem_swap_limit = OSContainer::memory_and_swap_limit_in_bytes();
-    ssize_t mem_limit = OSContainer::memory_limit_in_bytes();
-    if (mem_swap_limit >= 0 && mem_limit >= 0) {
+    size_t mem_limit = value_unlimited;
+    OSContainer::memory_limit_in_bytes(mem_limit);
+    if (mem_swap_limit >= 0 && mem_limit != value_unlimited) {
       jlong delta_limit = mem_swap_limit - mem_limit;
       if (delta_limit <= 0) {
         value = 0;
@@ -365,10 +368,11 @@ bool os::free_swap_space(size_t& value) {
 
 size_t os::physical_memory() {
   if (OSContainer::is_containerized()) {
-    ssize_t mem_limit;
-    if ((mem_limit = OSContainer::memory_limit_in_bytes()) > 0) {
-      log_trace(os)("total container memory: %zd", mem_limit);
-      return static_cast<size_t>(mem_limit);
+    size_t mem_limit = value_unlimited;
+    OSContainer::memory_limit_in_bytes(mem_limit);
+    if (mem_limit != value_unlimited) {
+      log_trace(os)("total container memory: %zu", mem_limit);
+      return mem_limit;
     }
   }
 
@@ -2518,7 +2522,13 @@ bool os::Linux::print_container_info(outputStream* st) {
     st->print_cr("unavailable");
   }
 
-  OSContainer::print_container_helper(st, OSContainer::memory_limit_in_bytes(), "memory_limit_in_bytes", false /* is_usage */);
+  size_t memory_limit_val = value_unlimited;
+  ssize_t memory_limit = -1;
+  OSContainer::memory_limit_in_bytes(memory_limit_val);
+  if (memory_limit_val != value_unlimited) {
+    memory_limit = static_cast<ssize_t>(memory_limit_val);
+  }
+  OSContainer::print_container_helper(st, memory_limit, "memory_limit_in_bytes", false /* is_usage */);
   OSContainer::print_container_helper(st, OSContainer::memory_and_swap_limit_in_bytes(), "memory_and_swap_limit_in_bytes", false /* is_usage */);
   OSContainer::print_container_helper(st, OSContainer::memory_soft_limit_in_bytes(), "memory_soft_limit_in_bytes", false /* is_usage */);
   OSContainer::print_container_helper(st, OSContainer::memory_throttle_limit_in_bytes(), "memory_throttle_limit_in_bytes", false /* is_usage */);

@@ -273,26 +273,27 @@ TEST(cgroupTest, read_number_tests) {
 
   // Some interface files have numbers as well as the string
   // 'max', which means unlimited.
-  ssize_t result = 0;
+  size_t result = 0;
+  size_t unlimited = SIZE_MAX;
   fill_file(test_file, "max\n");
   ok = controller->read_number_handle_max(base_with_slash, result);
   EXPECT_TRUE(ok) << "Number parsing for 'max' string should have been successful";
-  EXPECT_EQ((ssize_t)-1, result) << "'max' means unlimited (-1)";
+  EXPECT_EQ(unlimited, result) << "'max' means unlimited (-1)";
 
   result = 0;
   fill_file(test_file, "11114\n");
   ok = controller->read_number_handle_max(base_with_slash, result);
   EXPECT_TRUE(ok) << "Number parsing for should have been successful";
-  EXPECT_EQ((ssize_t)11114, result) << "Incorrect result";
+  EXPECT_EQ((size_t)11114, result) << "Incorrect result";
 
   result = 0;
   // This is a contrived test case not matching cgroup interface files
   // in the wild where numbers are positive. The value is deliberately
-  // outside the ssize_t range. Yet it should work
+  // negative. Yet it should work
   fill_file(test_file, "-51114\n");
   ok = controller->read_number_handle_max(base_with_slash, result);
   EXPECT_TRUE(ok) << "Number parsing for should have been successful";
-  EXPECT_EQ((ssize_t)-51114, result) << "Incorrect result";
+  EXPECT_EQ((ssize_t)-51114, (ssize_t)result) << "Incorrect result";
 
   delete_file(test_file);
 }

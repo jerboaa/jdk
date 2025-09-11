@@ -206,26 +206,26 @@ bool CgroupV2MemoryController::memory_usage_in_bytes(size_t& value) {
 }
 
 ssize_t CgroupV2MemoryController::memory_soft_limit_in_bytes(size_t host_mem) {
-  ssize_t result = 0;
-  if (!memory_soft_limit_in_bytes(host_mem, result)) {
+  size_t result = 0;
+  if (!memory_soft_limit_in_bytes(host_mem, result) || result == value_unlimited) {
     return -1; // treat as unlimited
   }
-  return result;
+  return static_cast<ssize_t>(result);
 }
 
-bool CgroupV2MemoryController::memory_soft_limit_in_bytes(size_t phys_mem, ssize_t& value) {
+bool CgroupV2MemoryController::memory_soft_limit_in_bytes(size_t phys_mem, size_t& value) {
   CONTAINER_READ_NUMBER_CHECKED_MAX(reader(), "/memory.low", "Memory Soft Limit", value);
 }
 
 ssize_t CgroupV2MemoryController::memory_throttle_limit_in_bytes() {
-  ssize_t result = 0;
-  if (!memory_throttle_limit_in_bytes(result)) {
+  size_t result = 0;
+  if (!memory_throttle_limit_in_bytes(result) || result == value_unlimited) {
     return -1; // treat as unlimited
   }
-  return result;
+  return static_cast<ssize_t>(result);
 }
 
-bool CgroupV2MemoryController::memory_throttle_limit_in_bytes(ssize_t& value) {
+bool CgroupV2MemoryController::memory_throttle_limit_in_bytes(size_t& value) {
   CONTAINER_READ_NUMBER_CHECKED_MAX(reader(), "/memory.high", "Memory Throttle Limit", value);
 }
 
@@ -292,24 +292,39 @@ bool CgroupV2MemoryController::memory_and_swap_limit_in_bytes(size_t phys_mem,
                                                               size_t host_swap /* unused in cg v2 */,
                                                               ssize_t& result) {
   ssize_t swap_limit = -1;
-  bool is_ok = reader()->read_number_handle_max("/memory.swap.max", swap_limit);
+  size_t swap_limit_val = 0;
+  bool is_ok = reader()->read_number_handle_max("/memory.swap.max", swap_limit_val);
   if (!is_ok) {
     // Some container tests rely on this trace logging to happen.
     log_trace(os, container)("Swap Limit failed: %d", OSCONTAINER_ERROR);
     // swap disabled at kernel level, treat it as no swap
-    return read_memory_limit_in_bytes(phys_mem, result);
+    // TODO: Fix the -1 handling of mem_limit
+    size_t mem_limit = 0;
+    if (!read_memory_limit_in_bytes(phys_mem, mem_limit)) {
+      return false;
+    }
+    if (mem_limit == value_unlimited) {
+      result = -1;
+    } else {
+      result = static_cast<ssize_t>(mem_limit);
+    }
+    return true;
+  } else {
+    if (swap_limit_val != value_unlimited) {
+      swap_limit = static_cast<ssize_t>(swap_limit_val);
+    }
   }
   log_trace(os, container)("Swap Limit is: %zd", swap_limit);
-  if (swap_limit >= 0) {
-    ssize_t memory_limit = -1;
+  if (swap_limit > 0) {
+    size_t memory_limit = 0;
     if (read_memory_limit_in_bytes(phys_mem, memory_limit)) {
-      assert(memory_limit >= 0, "swap limit without memory limit?");
-      result = memory_limit + swap_limit;
+      assert(memory_limit != value_unlimited, "swap limit without memory limit?");
+      result = static_cast<ssize_t>(memory_limit) + swap_limit;
       return true;
     }
   }
   log_trace(os, container)("Memory and Swap Limit is: %zd", swap_limit);
-  result = swap_limit;
+  result = static_cast<ssize_t>(swap_limit);
   return true;
 }
 
@@ -344,16 +359,8 @@ bool CgroupV2MemoryController::memory_and_swap_usage_in_bytes(size_t host_mem, s
 }
 
 static
-bool memory_limit_value(CgroupV2Controller* ctrl, ssize_t& result) {
+bool memory_limit_value(CgroupV2Controller* ctrl, size_t& result) {
   CONTAINER_READ_NUMBER_CHECKED_MAX(ctrl, "/memory.max", "Memory Limit", result);
-}
-
-ssize_t CgroupV2MemoryController::read_memory_limit_in_bytes(size_t host_mem) {
-  ssize_t memory_limit = 0;
-  if (!read_memory_limit_in_bytes(host_mem, memory_limit)) {
-    return -1; // treat as unlimited
-  }
-  return memory_limit;
 }
 
 /* read_memory_limit_in_bytes
@@ -365,37 +372,30 @@ ssize_t CgroupV2MemoryController::read_memory_limit_in_bytes(size_t host_mem) {
  *    true when the limit could be read correctly.
  *    false in case of any error.
  */
-bool CgroupV2MemoryController::read_memory_limit_in_bytes(size_t phys_mem, ssize_t& result) {
-  ssize_t limit = -1; // default unlimited
-  bool is_ok = memory_limit_value(reader(), limit);
-  if (!is_ok) {
+bool CgroupV2MemoryController::read_memory_limit_in_bytes(size_t phys_mem, size_t& result) {
+  size_t limit = 0; // default unlimited
+  if (!memory_limit_value(reader(), limit)) {
     log_trace(os, container)("container memory limit failed, using host value %zu",
                               phys_mem);
     return false;
   }
-  size_t read_limit = static_cast<size_t>(limit);
-  ssize_t orig_limit = limit;
+  bool is_unlimited = limit == value_unlimited;
   bool exceeds_physical_mem = false;
-  if (read_limit >= phys_mem) {
+  if (!is_unlimited && limit >= phys_mem) {
     exceeds_physical_mem = true;
-    limit = -1; // reset limit
   }
   if (log_is_enabled(Trace, os, container)) {
-    if (limit == -1) {
-      log_trace(os, container)("Memory Limit is: Unlimited");
-    } else {
-      log_trace(os, container)("Memory Limit is: %zd", limit);
+    if (!is_unlimited) {
+      log_trace(os, container)("Memory Limit is: %zu", limit);
     }
-    if (orig_limit < 0 || exceeds_physical_mem) {
-        const char* reason;
-        if (orig_limit == -1) {
-          reason = "unlimited";
-        } else {
-          assert(read_limit >= phys_mem, "Expected mem limit to exceed host memory");
-          reason = "ignored";
-        }
-        log_trace(os, container)("container memory limit %s: %zd, using host value %zu",
-                                 reason, orig_limit, phys_mem);
+    if (is_unlimited || exceeds_physical_mem) {
+      if (is_unlimited) {
+        log_trace(os, container)("Memory Limit is: Unlimited");
+        log_trace(os, container)("container memory limit unlimited, using host value %zu", phys_mem);
+      } else {
+        log_trace(os, container)("container memory limit ignored: %zu, using host value %zu",
+                                 limit, phys_mem);
+      }
     }
   }
   result = limit;
@@ -403,7 +403,7 @@ bool CgroupV2MemoryController::read_memory_limit_in_bytes(size_t phys_mem, ssize
 }
 
 static
-bool memory_swap_limit_value(CgroupV2Controller* ctrl, ssize_t& value) {
+bool memory_swap_limit_value(CgroupV2Controller* ctrl, size_t& value) {
   CONTAINER_READ_NUMBER_CHECKED_MAX(ctrl, "/memory.swap.max", "Swap Limit", value);
 }
 
@@ -429,8 +429,13 @@ void CgroupV2MemoryController::print_version_specific_info(outputStream* st, siz
   if (memory_swap_current_value(reader(), swap_current_val)) {
     swap_current = static_cast<ssize_t>(swap_current_val);
   }
-  ssize_t swap_limit = -1;
-  memory_swap_limit_value(reader(), swap_limit); // use default of -1 if we have a failure
+  size_t swap_limit = 0;
+  ssize_t swap_limit_val = 0;
+  if (!memory_swap_limit_value(reader(), swap_limit) || swap_limit == value_unlimited) {
+    swap_limit_val = -1;
+  } else {
+    swap_limit_val = static_cast<ssize_t>(swap_limit_val);
+  }
 
   OSContainer::print_container_helper(st, swap_current, "memory_swap_current_in_bytes", true /* is_usage */);
   OSContainer::print_container_helper(st, swap_limit, "memory_swap_max_limit_in_bytes", false /* is_usage */);
@@ -455,16 +460,16 @@ char* CgroupV2Controller::construct_path(char* mount_path, const char* cgroup_pa
  *    true if the value has been set appropriately
  *    false if there was an error
  */
-bool CgroupV2Subsystem::pids_max(ssize_t& value) {
+bool CgroupV2Subsystem::pids_max(size_t& value) {
   CONTAINER_READ_NUMBER_CHECKED_MAX(unified(), "/pids.max", "Maximum number of tasks", value);
 }
 
 ssize_t CgroupV2Subsystem::pids_max() {
-  ssize_t max_pids = 0;
-  if (!pids_max(max_pids)) {
+  size_t max_pids = 0;
+  if (!pids_max(max_pids) || max_pids == value_unlimited) {
     return -1; // treat as unlimited
   }
-  return max_pids;
+  return static_cast<ssize_t>(max_pids);
 }
 
 /* pids_current

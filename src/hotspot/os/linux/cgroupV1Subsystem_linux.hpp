@@ -87,7 +87,7 @@ class CgroupV1MemoryController final : public CgroupMemoryController {
     void set_subsystem_path(const char *cgroup_path) override {
       reader()->set_subsystem_path(cgroup_path);
     }
-    ssize_t read_memory_limit_in_bytes(size_t host_mem) override;
+    bool read_memory_limit_in_bytes(size_t host_mem, size_t& value) override;
     ssize_t memory_usage_in_bytes() override;
     ssize_t memory_and_swap_limit_in_bytes(size_t host_mem, size_t host_swap) override;
     ssize_t memory_and_swap_usage_in_bytes(size_t host_mem, size_t host_swap) override;

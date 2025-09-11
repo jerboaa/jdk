@@ -139,21 +139,22 @@ bool CgroupV1MemoryController::read_memory_limit_val(size_t& result) {
   CONTAINER_READ_NUMBER_CHECKED(reader(), "/memory.limit_in_bytes", "Memory Limit", result);
 }
 
-ssize_t CgroupV1MemoryController::read_memory_limit_in_bytes(size_t host_mem) {
+bool CgroupV1MemoryController::read_memory_limit_in_bytes(size_t host_mem, size_t& result) {
   size_t memlimit = 0;
   if (!read_memory_limit_val(memlimit)) {
     log_trace(os, container)("container memory limit failed, using host value %zu", host_mem);
-    return (ssize_t)-1; // treat as unlimited
+    return false;
   }
   if (memlimit >= host_mem) {
     // Exceeding physical memory is treated as unlimited. This implementation
     // caps it at host_mem since Cg v1 has no value to represent 'max'.
     log_trace(os, container)("container memory limit ignored: %zu, using host value %zu",
                               memlimit, host_mem);
-    return (ssize_t)-1; // unlimited
+    result = value_unlimited;
   } else {
-    return static_cast<ssize_t>(memlimit);
+    result = memlimit;
   }
+  return true;
 }
 
 bool CgroupV1MemoryController::read_mem_swap(size_t& result) {
@@ -191,7 +192,14 @@ ssize_t CgroupV1MemoryController::memory_and_swap_limit_in_bytes(size_t host_mem
     mem_swap_read_failed = true;
   }
   if (swappiness == 0 || mem_swap_read_failed) {
-    ssize_t memlimit = read_memory_limit_in_bytes(host_mem);
+    size_t memlimit = value_unlimited;
+    if (!read_memory_limit_in_bytes(host_mem, memlimit)) {
+      // TODO: return false - as this is an error
+      return -1;
+    }
+    if (memlimit == value_unlimited) {
+      return -1;
+    }
     if (mem_swap_read_failed) {
       log_trace(os, container)("Memory and Swap Limit has been reset to %zd because swap is not supported", memlimit);
     } else {
@@ -209,7 +217,13 @@ bool memory_swap_usage_impl(CgroupController* ctrl, size_t& result) {
 
 ssize_t CgroupV1MemoryController::memory_and_swap_usage_in_bytes(size_t phys_mem, size_t host_swap) {
   ssize_t memory_sw_limit = memory_and_swap_limit_in_bytes(phys_mem, host_swap);
-  ssize_t memory_limit = read_memory_limit_in_bytes(phys_mem);
+  size_t mem_limit_val = value_unlimited;
+  ssize_t memory_limit = -1; // default unlimited
+  if (read_memory_limit_in_bytes(phys_mem, mem_limit_val)) {
+    if (mem_limit_val != value_unlimited) {
+      memory_limit = static_cast<ssize_t>(mem_limit_val);
+    }
+  }
   if (memory_sw_limit > 0 && memory_limit > 0) {
     ssize_t delta_swap = memory_sw_limit - memory_limit;
     if (delta_swap > 0) {
@@ -467,7 +481,7 @@ ssize_t CgroupV1CpuacctController::cpu_usage_in_micros() {
 }
 
 static
-bool pids_max_val(CgroupController* ctrl, ssize_t& result) {
+bool pids_max_val(CgroupController* ctrl, size_t& result) {
   CONTAINER_READ_NUMBER_CHECKED_MAX(ctrl, "/pids.max", "Maximum number of tasks", result);
 }
 
@@ -481,11 +495,11 @@ bool pids_max_val(CgroupController* ctrl, ssize_t& result) {
  */
 ssize_t CgroupV1Subsystem::pids_max() {
   if (_pids == nullptr) return -1; // treat as unlimited
-  ssize_t pids_val = 0;
-  if (!pids_max_val(_pids, pids_val)) {
+  size_t pids_val = 0;
+  if (!pids_max_val(_pids, pids_val) || pids_val == value_unlimited) {
     return -1; // treat failure as unlimited
   }
-  return pids_val;
+  return static_cast<ssize_t>(pids_val);
 }
 
 static
