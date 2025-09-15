@@ -258,7 +258,8 @@ TEST(cgroupTest, read_number_tests) {
   EXPECT_EQ((size_t)8888, foo) << "Wrong value for 'foo' (NOTE: 0xBAD == " << 0xBAD << ")";
 
   // Some interface files might have negative values, ensure we can read
-  // them and manually cast them as needed.
+  // them and manually cast them as needed. For example, on cgv1, the cpu.cfs_quota_us
+  // file might be set to -1 to indicate no cpu quota setup.
   fill_file(test_file, "-1");
   foo = bad;
   ok = controller->read_number(base_with_slash, foo);
